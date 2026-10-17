@@ -1,18 +1,17 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { allowedOriginsFrom, isAcceptedPick, isWellFormedPick, isOurResult, launchFrame } from '../public/launch-core.js';
-import { DEFAULT_ALLOWED_ORIGINS, MAX_SHOT_BYTES } from '../public/defaults.js';
+import { allowedOriginsFrom, isAcceptedPick, isWellFormedPick } from '../public/launch-core.js';
+import { DEFAULT_ALLOWED_ORIGINS, MAX_CLASSES, MAX_HTML, MAX_OWNERS, MAX_SHOT_BYTES } from '../public/defaults.js';
 
-const graph = (values) => ({ extensions: [{ id: 'other', settingValues: { allowedOrigins: ['http://evil'] } }, { id: 'ui-picker', settingValues: values }] });
-
-test('allowedOriginsFrom reads our own settings', () => {
-  assert.deepEqual(allowedOriginsFrom(graph({ allowedOrigins: ['http://a:1'] })), ['http://a:1']);
+test('allowedOriginsFrom reads our settings values', () => {
+  assert.deepEqual(allowedOriginsFrom({ allowedOrigins: ['http://a:1'] }), ['http://a:1']);
 });
 
 test('allowedOriginsFrom falls back to defaults when unset or empty', () => {
-  assert.deepEqual(allowedOriginsFrom(graph({})), DEFAULT_ALLOWED_ORIGINS);
-  assert.deepEqual(allowedOriginsFrom(graph({ allowedOrigins: [] })), DEFAULT_ALLOWED_ORIGINS);
   assert.deepEqual(allowedOriginsFrom({}), DEFAULT_ALLOWED_ORIGINS);
+  assert.deepEqual(allowedOriginsFrom({ allowedOrigins: [] }), DEFAULT_ALLOWED_ORIGINS);
+  assert.deepEqual(allowedOriginsFrom({ allowedOrigins: 'http://a:1' }), DEFAULT_ALLOWED_ORIGINS);
+  assert.deepEqual(allowedOriginsFrom(undefined), DEFAULT_ALLOWED_ORIGINS);
 });
 
 const opener = { name: 'opener' };
@@ -36,17 +35,6 @@ test('isAcceptedPick rejects a message from any window other than the expected s
   const allowed = ['http://localhost:3333'];
   assert.equal(isAcceptedPick({ ...ok, source: { name: 'other' } }, allowed, opener), false);
   assert.equal(isAcceptedPick({ ...ok, source: null }, allowed, null), false);
-});
-
-test('isOurResult matches the broadcast for this request only', () => {
-  assert.equal(isOurResult({ type: 'ext:ui-picker', requestId: 'r1', sessionId: 's' }, 'r1'), true);
-  assert.equal(isOurResult({ type: 'ext:ui-picker', requestId: 'r2' }, 'r1'), false);
-  assert.equal(isOurResult({ type: 'graph' }, 'r1'), false);
-});
-
-test('launchFrame shapes the control frame', () => {
-  const f = launchFrame({ requestId: 'r1', pick: { a: 1 }, note: 'n', screenshot: null });
-  assert.deepEqual(f, { type: 'ui-picker-launch', requestId: 'r1', pick: { a: 1 }, note: 'n', screenshot: null });
 });
 
 test('isWellFormedPick accepts a good pick and rejects malformed shapes', () => {
@@ -86,7 +74,13 @@ test('isWellFormedPick takes an optional PNG data URL screenshot within the cap'
   assert.equal(isWellFormedPick({ ...goodPick, screenshot: 'data:image/png;base64,' + 'A'.repeat(max + 4) }), false);
 });
 
-test('launchFrame keeps the screenshot out of the pick', () => {
-  const f = launchFrame({ requestId: 'r1', pick: { a: 1, screenshot: PNG }, note: 'n', screenshot: PNG });
-  assert.deepEqual(f, { type: 'ui-picker-launch', requestId: 'r1', pick: { a: 1 }, note: 'n', screenshot: PNG });
+
+test('isWellFormedPick caps html, owners and classes as the bookmarklet does', () => {
+  const owner = { name: 'A', at: null };
+  assert.equal(isWellFormedPick({ ...goodPick, html: 'x'.repeat(MAX_HTML) }), true);
+  assert.equal(isWellFormedPick({ ...goodPick, html: 'x'.repeat(MAX_HTML + 1) }), false);
+  assert.equal(isWellFormedPick({ ...goodPick, owners: Array(MAX_OWNERS).fill(owner) }), true);
+  assert.equal(isWellFormedPick({ ...goodPick, owners: Array(MAX_OWNERS + 1).fill(owner) }), false);
+  assert.equal(isWellFormedPick({ ...goodPick, element: { ...goodPick.element, classes: Array(MAX_CLASSES).fill('c') } }), true);
+  assert.equal(isWellFormedPick({ ...goodPick, element: { ...goodPick.element, classes: Array(MAX_CLASSES + 1).fill('c') } }), false);
 });

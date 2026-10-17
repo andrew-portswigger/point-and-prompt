@@ -9,6 +9,6 @@
     "label": "UI Picker",
     "description": "Pick a component in the enterprise web app and start a session about it.",
     "author": "Andrew Whitehead",
-    "requires": ["sessions:spawn", "board:broadcast"]
+    "requires": []
   }
 }
