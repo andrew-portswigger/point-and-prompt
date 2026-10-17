@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { fiberOf, debugAt, ownerChain, describeElement, buildPayload } from '../public/pick-core.js';
+import { fiberOf, debugAt, ownerChain, describeElement, buildPayload, containingElement, padRect, dragRect, shotFits, PICK_MAX_SHOT_BYTES } from '../public/pick-core.js';
 
 const src = (fileName, lineNumber) => ({ fileName, lineNumber });
 
@@ -69,4 +69,58 @@ test('buildPayload works on a non-React element', () => {
   const p = buildPayload(el({}), { url: 'http://h/', rect: { x: 0, y: 0, width: 0, height: 0 }, dpr: 1 });
   assert.equal(p.jsxAt, null);
   assert.deepEqual(p.owners, []);
+});
+
+const box = (x, y, width, height) => ({ x, y, width, height });
+
+function tree() {
+  const root = { name: 'root', parentElement: null, r: box(0, 0, 1000, 800) };
+  const parent = { name: 'parent', parentElement: root, r: box(100, 100, 400, 200) };
+  const left = { name: 'left', parentElement: parent, r: box(100, 100, 200, 200) };
+  const right = { name: 'right', parentElement: parent, r: box(300, 100, 200, 200) };
+  return { root, parent, left, right, rectOf: (el) => el.r };
+}
+
+test('containingElement returns the start when it contains the rect', () => {
+  const t = tree();
+  assert.equal(containingElement(t.left, box(120, 120, 50, 50), t.rectOf, 'body'), t.left);
+});
+
+test('containingElement walks up to the parent of a rect spanning two children', () => {
+  const t = tree();
+  assert.equal(containingElement(t.left, box(250, 150, 100, 20), t.rectOf, 'body'), t.parent);
+});
+
+test('containingElement treats edges as contained', () => {
+  const t = tree();
+  assert.equal(containingElement(t.left, box(100, 100, 200, 200), t.rectOf, 'body'), t.left);
+});
+
+test('containingElement falls back when nothing contains the rect', () => {
+  const t = tree();
+  assert.equal(containingElement(t.left, box(900, 700, 200, 200), t.rectOf, 'body'), 'body');
+  assert.equal(containingElement(null, box(0, 0, 1, 1), t.rectOf, 'body'), 'body');
+});
+
+test('padRect pads and clamps to the viewport', () => {
+  const vp = { width: 800, height: 600 };
+  assert.deepEqual(padRect(box(100, 100, 50, 20), 8, vp), box(92, 92, 66, 36));
+  assert.deepEqual(padRect(box(2, 3, 50, 20), 8, vp), box(0, 0, 60, 31));
+  assert.deepEqual(padRect(box(760, 590, 50, 20), 8, vp), box(752, 582, 48, 18));
+  assert.deepEqual(padRect(box(-50, -50, 20, 20), 8, vp), box(0, 0, 0, 0));
+});
+
+test('dragRect normalises two corners in any order', () => {
+  assert.deepEqual(dragRect({ x: 50, y: 10 }, { x: 20, y: 40 }), box(20, 10, 30, 30));
+});
+
+test('shotFits checks the PNG prefix and the decoded size', () => {
+  const prefix = 'data:image/png;base64,';
+  assert.equal(shotFits(prefix + 'AAAA'), true);
+  assert.equal(shotFits('data:,'), false);
+  assert.equal(shotFits('data:image/jpeg;base64,AAAA'), false);
+  assert.equal(shotFits(null), false);
+  const max = Math.floor(PICK_MAX_SHOT_BYTES / 3) * 4;
+  assert.equal(shotFits(prefix + 'A'.repeat(max)), true);
+  assert.equal(shotFits(prefix + 'A'.repeat(max + 4)), false);
 });

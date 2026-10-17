@@ -2,8 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { buildBookmarklet } from '../public/build-bookmarklet.js';
-import { PICK_MAX_HTML, PICK_MAX_OWNERS, PICK_MAX_CLASSES } from '../public/pick-core.js';
-import { MAX_HTML, MAX_OWNERS, MAX_CLASSES } from '../public/defaults.js';
+import { PICK_MAX_HTML, PICK_MAX_OWNERS, PICK_MAX_CLASSES, PICK_MAX_SHOT_BYTES } from '../public/pick-core.js';
+import { MAX_HTML, MAX_OWNERS, MAX_CLASSES, MAX_SHOT_BYTES } from '../public/defaults.js';
 
 const read = (f) => fs.readFileSync(new URL(`../public/${f}`, import.meta.url), 'utf8');
 
@@ -21,6 +21,7 @@ test('pick-core limits match defaults', () => {
   assert.equal(PICK_MAX_HTML, MAX_HTML);
   assert.equal(PICK_MAX_OWNERS, MAX_OWNERS);
   assert.equal(PICK_MAX_CLASSES, MAX_CLASSES);
+  assert.equal(PICK_MAX_SHOT_BYTES, MAX_SHOT_BYTES);
 });
 
 test('origin is inserted literally, without $ replacement patterns', () => {
