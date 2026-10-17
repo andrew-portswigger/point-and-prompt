@@ -44,7 +44,7 @@ function fakeEl(tag, rect, parentElement = null) {
 }
 
 // capture: 'reject' (user cancelled), 'resolve' (sharing), 'pending' (prompt still open).
-async function setup({ capture = 'reject', png = PNG, grab = 'ok' } = {}) {
+async function setup({ capture = 'reject', png = PNG, grab = 'ok', surface = 'browser', frame = { width: 2000, height: 1600 } } = {}) {
   const listeners = [];
   const timers = [];
   const opened = [];
@@ -52,7 +52,14 @@ async function setup({ capture = 'reject', png = PNG, grab = 'ok' } = {}) {
   const banners = [];
   const live = new Set();
   const drawn = [];
-  const track = { stopped: 0, stop() { this.stopped++; } };
+  const track = {
+    stopped: 0,
+    stop() { this.stopped++; },
+    getSettings: () => ({ displaySurface: surface }),
+    on: {},
+    addEventListener(type, f) { this.on[type] = f; },
+    removeEventListener(type, f) { if (this.on[type] === f) delete this.on[type]; },
+  };
   const stream = { getTracks: () => [track], getVideoTracks: () => [track] };
   const gdmCalls = [];
   let settle;
@@ -70,7 +77,7 @@ async function setup({ capture = 'reject', png = PNG, grab = 'ok' } = {}) {
     constructor(t) { assert.equal(t, track); }
     grabFrame() {
       if (grab === 'throw') return Promise.reject(new Error('InvalidStateError'));
-      return Promise.resolve({ width: 2000, height: 1600, close() {} });
+      return Promise.resolve({ ...frame, close() {} });
     }
   }
   const win = { __uiPickerActive: false, popup: {}, open(...a) { opened.push(a); return win.popup; } };
@@ -261,12 +268,13 @@ test('a drag past 4px picks the smallest element containing the area', async () 
 });
 
 test('a drag with nothing containing it falls back to the body', async () => {
-  const t = await setup();
+  const t = await setup({ capture: 'resolve' });
   t.setUnderPoint(null);
   t.fire('pointerdown', t.ev({ clientX: 10, clientY: 10 }));
   t.fire('pointermove', t.ev({ clientX: 100, clientY: 100 }));
   t.fire('pointerup', t.ev({ clientX: 100, clientY: 100 }));
   t.ready();
+  await flush();
   assert.equal(t.posted[0][0].element.tag, 'body');
 });
 
@@ -340,4 +348,87 @@ test('a drag cannot select text or start the page drag and drop', async () => {
     t.fire(type, t.ev({ preventDefault: () => prevented++ }));
     assert.equal(prevented, 1, type);
   }
+});
+
+test('without capture there is no drag: a long move still clicks the pressed element', async () => {
+  const t = await setup();
+  t.fire('pointerdown', t.ev());
+  t.fire('pointermove', t.ev({ clientX: 300, clientY: 300 }));
+  t.fire('pointerup', t.ev({ clientX: 300, clientY: 300 }));
+  t.ready();
+  assert.equal(t.posted[0][0].element.tag, 'button');
+});
+
+test('sharing another surface is refused: tracks stop and picking is click-only', async () => {
+  const t = await setup({ capture: 'resolve', surface: 'window' });
+  assert.equal(t.track.stopped > 0, true);
+  assert.equal(t.banners.at(-1), 'UI Picker: only this tab can be captured — click an element (Esc to cancel)');
+  t.click();
+  t.ready();
+  assert.equal(t.posted.length, 1);
+  assert.equal('screenshot' in t.posted[0][0], false);
+});
+
+test('a frame whose shape does not match the viewport is dropped', async () => {
+  const t = await setup({ capture: 'resolve', frame: { width: 2000, height: 1000 } });
+  t.click();
+  t.ready();
+  await flush();
+  assert.equal(t.posted.length, 1);
+  assert.equal('screenshot' in t.posted[0][0], false);
+  assert.match(t.banners.at(-1), /screenshot failed — paste one instead/);
+});
+
+test('sharing stopped from the browser bar: pick without a screenshot and no drag', async () => {
+  const t = await setup({ capture: 'resolve' });
+  t.track.on.ended();
+  assert.equal(t.banners.at(-1), 'UI Picker: sharing stopped — click an element (Esc to cancel)');
+  assert.equal(t.track.on.ended, undefined, 'the ended listener is removed');
+  t.fire('pointerdown', t.ev());
+  t.fire('pointermove', t.ev({ clientX: 300, clientY: 300 }));
+  t.fire('pointerup', t.ev({ clientX: 300, clientY: 300 }));
+  t.ready();
+  assert.equal(t.posted.length, 1);
+  assert.equal(t.posted[0][0].element.tag, 'button');
+  assert.equal('screenshot' in t.posted[0][0], false);
+  assert.equal(t.drawn.length, 0);
+});
+
+for (const [label, exit] of [
+  ['Esc', (t) => t.fire('keydown', t.ev({ key: 'Escape' }))],
+  ['a pick', (t) => { t.click(); t.ready(); }],
+  ['a blocked popup', (t) => { t.win.popup = null; t.click(); }],
+]) {
+  test(`the ended listener is removed after ${label}`, async () => {
+    const t = await setup({ capture: 'resolve' });
+    assert.equal(typeof t.track.on.ended, 'function');
+    exit(t);
+    await flush();
+    assert.equal(t.track.on.ended, undefined);
+  });
+}
+
+test('a straight-line drag picks without a screenshot or a failure banner', async () => {
+  const t = await setup({ capture: 'resolve' });
+  t.fire('pointerdown', t.ev({ clientX: 90, clientY: 105 }));
+  t.fire('pointermove', t.ev({ clientX: 200, clientY: 105 }));
+  t.fire('pointerup', t.ev({ clientX: 200, clientY: 105 }));
+  t.ready();
+  await flush();
+  assert.equal(t.posted.length, 1);
+  assert.equal('screenshot' in t.posted[0][0], false);
+  assert.equal(t.drawn.length, 0);
+  assert.equal(t.track.stopped > 0, true);
+  assert.equal(t.banners.some((b) => /screenshot failed/.test(b)), false);
+});
+
+test('an off-screen target picks without a screenshot', async () => {
+  const t = await setup({ capture: 'resolve' });
+  const off = { ...t.target, getBoundingClientRect: () => ({ x: 100, y: 2000, width: 50, height: 20, left: 100, top: 2000 }) };
+  t.click({ target: off });
+  t.ready();
+  await flush();
+  assert.equal(t.posted.length, 1);
+  assert.equal('screenshot' in t.posted[0][0], false);
+  assert.equal(t.banners.some((b) => /screenshot failed/.test(b)), false);
 });

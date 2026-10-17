@@ -42,6 +42,9 @@ On the enterprise app (default `http://localhost:3333` or `:1234`), click the bo
 
 Allow pop-ups for the site the first time. While sharing, Chrome's sharing bar appears at the top
 of the tab; it goes away as soon as the screenshot is taken (or when you press `Esc`).
+Only this tab can be captured: share another window or screen and the picker carries on without
+a screenshot. Stopping sharing from Chrome's bar does the same, and you can then only click, not
+drag.
 
 If you cancelled the share, or the capture failed, you can still copy a screenshot with ⌘⇧⌃4 and
 paste it into the launch window (PNG, up to 10 MB). A pasted screenshot replaces a captured one.

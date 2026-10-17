@@ -5,8 +5,11 @@ window.__uiPickerActive = true;
 const DRAG_PX = 4;
 const CLICK_PAD = 8;
 
-// Ask to share this tab right away: running the bookmarklet is the user
-// activation getDisplayMedia needs, and it is gone once a promise settles.
+// Ask to share this tab right away, synchronously: running the bookmarklet is
+// the user activation getDisplayMedia needs. Transient activation is time-based
+// (~5s in Chrome), so it can't be relied on once the user has answered the
+// prompt; the popup instead opens synchronously in pointerup, off the
+// activation the pick's pointerdown gives.
 let shared;
 try {
   shared = navigator.mediaDevices.getDisplayMedia({ video: { displaySurface: 'browser' }, audio: false, preferCurrentTab: true, selfBrowserSurface: 'include' });
@@ -18,9 +21,21 @@ let stream = null; // set while this tab is being shared
 let ended = false;
 let press = null; // { x, y, target, dragging } between pointerdown and pointerup
 
+function stopTracks(s) { for (const t of s.getTracks()) t.stop(); }
+
 function stopSharing() {
-  if (stream) for (const t of stream.getTracks()) t.stop();
+  if (!stream) return;
+  stream.getVideoTracks()[0].removeEventListener('ended', sharingEnded);
+  stopTracks(stream);
   stream = null;
+}
+
+// The user stopped sharing from Chrome's bar: carry on without a screenshot.
+function sharingEnded() {
+  stopSharing();
+  if (ended) return;
+  dismissBanners();
+  banner('UI Picker: sharing stopped — click an element (Esc to cancel)');
 }
 
 // Everything we draw on the page, so it can all go before a frame is grabbed.
@@ -31,8 +46,10 @@ function overlay(cssText) {
   overlays.add(el);
   return el;
 }
-function dismiss(el) { el.remove(); overlays.delete(el); }
+function dismiss(el) { el.remove(); overlays.delete(el); banners.delete(el); }
 function removeOverlays() { for (const el of [...overlays]) dismiss(el); }
+const banners = new Set();
+function dismissBanners() { for (const b of [...banners]) dismiss(b); }
 
 const box = overlay('position:fixed;pointer-events:none;outline:2px solid #e5484d;background:rgba(229,72,77,.12);z-index:2147483647;transition:all 40ms');
 const sel = overlay('position:fixed;pointer-events:none;outline:2px dashed #e5484d;background:rgba(229,72,77,.12);z-index:2147483647');
@@ -41,6 +58,7 @@ const sel = overlay('position:fixed;pointer-events:none;outline:2px dashed #e548
 function banner(text, ms = 4000) {
   const b = overlay('pointer-events:none;position:fixed;top:12px;left:50%;transform:translateX(-50%);padding:8px 14px;background:#111;color:#fff;font:13px system-ui;border-radius:6px;z-index:2147483647');
   b.textContent = text;
+  banners.add(b);
   document.documentElement.appendChild(b);
   if (ms) setTimeout(() => dismiss(b), ms);
   return b;
@@ -95,7 +113,8 @@ function down(e) {
 
 function drag(e) {
   if (!press) return;
-  if (!press.dragging && Math.hypot(e.clientX - press.x, e.clientY - press.y) > DRAG_PX) {
+  // Dragging captures an area, so it is only offered while sharing.
+  if (!press.dragging && stream && Math.hypot(e.clientX - press.x, e.clientY - press.y) > DRAG_PX) {
     press.dragging = true;
     box.style.display = 'none';
     document.documentElement.appendChild(sel);
@@ -129,6 +148,8 @@ async function grab(rect) {
     await nextFrames();
     const bitmap = await new ImageCapture(track).grabFrame();
     stopSharing();
+    // A frame of another shape is not this viewport (another tab, or rescaled).
+    if (Math.abs(bitmap.width / bitmap.height - innerWidth / innerHeight) > 0.02) throw new Error('frame does not match the viewport');
     // Measured now, not at load: Chrome's sharing bar shrinks the viewport.
     const scale = bitmap.width / innerWidth;
     const c = document.createElement('canvas');
@@ -170,6 +191,8 @@ function up(e) {
   if (!popup) { stopSharing(); banner('UI Picker: allow pop-ups for this site and try again.'); return; }
 
   // Post once the popup is ready and the screenshot (if any) is settled.
+  // Nothing to capture in an empty area (a straight-line drag, an off-screen target).
+  if (rect.width < 1 || rect.height < 1) stopSharing();
   let ready = false;
   let shotDone = !stream;
   let sent = false;
@@ -221,9 +244,17 @@ function arm(text) {
 addEventListener('keydown', key, true);
 const asking = banner('UI Picker: share this tab to attach a screenshot (or Cancel to pick without one)', 0);
 shared.then((s) => {
-  if (ended) { for (const t of s.getTracks()) t.stop(); return; }
-  stream = s;
+  if (ended) { stopTracks(s); return; }
   dismiss(asking);
+  const track = s.getVideoTracks()[0];
+  // The prompt also offers other tabs, windows and screens; only this tab will do.
+  if (!track || track.getSettings().displaySurface !== 'browser') {
+    stopTracks(s);
+    arm('UI Picker: only this tab can be captured — click an element (Esc to cancel)');
+    return;
+  }
+  stream = s;
+  track.addEventListener('ended', sharingEnded);
   arm('UI Picker: click an element, or drag to capture an area (Esc to cancel)');
 }, () => {
   if (ended) return;
