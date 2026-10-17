@@ -4,6 +4,8 @@ export const PICK_MAX_HTML = 4096;
 export const PICK_MAX_OWNERS = 8;
 export const PICK_MAX_CLASSES = 3;
 
+// Assumes React 17/18 dev builds: `__reactFiber$` keys and `_debugSource` from the
+// dev JSX transform (React 19 has no `_debugSource`).
 export function fiberOf(el) {
   for (let e = el; e; e = e.parentElement) {
     const key = Object.keys(e).find((k) => k.startsWith('__reactFiber$'));
@@ -38,7 +40,7 @@ export function describeElement(el) {
     tag: el.tagName.toLowerCase(),
     id: el.id || '',
     classes: cls.split(/\s+/).filter(Boolean).slice(0, PICK_MAX_CLASSES),
-    text: (el.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 200),
+    text: (el.textContent || '').slice(0, 2000).replace(/\s+/g, ' ').trim().slice(0, 200),
   };
 }
 
