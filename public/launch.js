@@ -9,7 +9,7 @@ function start() {
   let allowed = null;
   let pick = null;
   let screenshot = null;
-  let pending = null; // { requestId, timer, timedOut }
+  let pending = null; // { requestId, timer, done }
   let lost = false;
 
   if (!opener) status('Open this from the UI Picker bookmarklet on an allowed page.', true);
