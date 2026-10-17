@@ -158,14 +158,14 @@ test('a missing getDisplayMedia arms plain picking', async () => {
   assert.ok(listeners.some(([t]) => t === 'pointerdown'));
 });
 
-test('pointerup opens a uniquely named popup at the exact launch URL', async () => {
+test('pointerup opens the board in a uniquely named popup at the exact picker URL', async () => {
   const a = await setup();
   a.fire('pointerdown', a.ev());
   assert.equal(a.opened.length, 0, 'not on pointerdown: a drag may follow');
   a.fire('pointerup', a.ev());
   const b = await setup();
   b.click();
-  assert.equal(a.opened[0][0], `${ORIGIN}/ext/ui-picker/launch.html`);
+  assert.equal(a.opened[0][0], `${ORIGIN}/?ui-picker=1`);
   assert.match(a.opened[0][1], /^ui-picker-[a-z0-9]+$/);
   assert.notEqual(a.opened[0][1], b.opened[0][1]);
 });
@@ -189,12 +189,12 @@ test('ready from another source is ignored; ready from the popup posts to the or
   assert.equal('screenshot' in t.posted[0][0], false);
 });
 
-test('no ready within 10s removes the listener and shows a banner', async () => {
+test('no ready within 30s removes the listener and shows a banner', async () => {
   const t = await setup();
   t.click();
-  const [fn] = t.timers.find(([, m]) => m === 10000);
+  const [fn] = t.timers.find(([, m]) => m === 30000);
   fn();
-  assert.match(t.banners.at(-1), /launch window didn't respond/);
+  assert.match(t.banners.at(-1), /board didn't respond within 30s/);
   t.ready();
   assert.equal(t.posted.length, 0);
 });
@@ -330,10 +330,10 @@ test('a blocked popup stops sharing', async () => {
   assert.equal(t.track.stopped > 0, true);
 });
 
-test('the 10s timeout stops sharing even if the grab has not finished', async () => {
+test('the 30s timeout stops sharing even if the grab has not finished', async () => {
   const t = await setup({ capture: 'resolve' });
   t.click();
-  const [fn] = t.timers.find(([, m]) => m === 10000);
+  const [fn] = t.timers.find(([, m]) => m === 30000);
   fn();
   assert.equal(t.track.stopped > 0, true);
   await flush();

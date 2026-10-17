@@ -3,6 +3,8 @@ if (window.__uiPickerActive) return;
 window.__uiPickerActive = true;
 
 const DRAG_PX = 4;
+// The board boots (socket, graph, extension modules) before it can say ready.
+const READY_MS = 30000;
 const CLICK_PAD = 8;
 
 // Ask to share this tab right away, synchronously: running the bookmarklet is
@@ -187,7 +189,7 @@ function up(e) {
   // Open the popup before any await, while the press still counts as activation.
   // A fresh window name per pick: a reused name would keep the first tab as opener.
   const name = 'ui-picker-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
-  const popup = window.open(WRANGLER + '/ext/ui-picker/launch.html', name, 'width=560,height=760');
+  const popup = window.open(WRANGLER + '/?ui-picker=1', name, 'width=560,height=760');
   if (!popup) { stopSharing(); banner('UI Picker: allow pop-ups for this site and try again.'); return; }
 
   // Post once the popup is ready and the screenshot (if any) is settled.
@@ -220,13 +222,13 @@ function up(e) {
     stopSharing();
     if (!ready) {
       removeEventListener('message', onReady);
-      banner("UI Picker: the launch window didn't respond. Is the UI Picker extension enabled on the wrangler?");
+      banner("UI Picker: the wrangler board didn't respond within 30s. Is the UI Picker extension enabled there (needs host API 1.36.0+)?", 8000);
       return;
     }
     // Ready, but the grab never finished: send the pick without it.
     shotDone = true;
     send();
-  }, 10000);
+  }, READY_MS);
 }
 
 function arm(text) {
