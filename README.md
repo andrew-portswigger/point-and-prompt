@@ -1,8 +1,10 @@
 # UI Picker
 
 An [Agent Wrangler](https://github.com/topics/agent-wrangler-extension) extension. Point at a
-component in the enterprise web app, add a note and a screenshot, and start a wrangler session
-about it.
+component in the enterprise web app and start a wrangler session about it from the board's normal
+new-session dialog, with the pick details and a screenshot already filled in.
+
+Requires an Agent Wrangler with host API 1.36.0 or later.
 
 ## How it works
 
@@ -14,17 +16,19 @@ about it.
    components that rendered it.
 3. If you shared the tab, it grabs one frame, crops it to the element (with a small margin) or to
    the dragged area, and stops sharing straight away.
-4. It opens a launch window served by your wrangler (`/ext/ui-picker/launch.html`) and hands the
-   pick and the screenshot to it with `postMessage`. The enterprise page never talks to the
-   wrangler directly, so no CORS or origin settings change.
-5. In the launch window you write a note. The captured screenshot is attached already; paste
-   another to replace it, or remove it. **Launch** starts a session in the enterprise repo (in a
-   new worktree by default) with your note and the pick details as its prompt.
+4. It opens your wrangler's board in a pop-up (`/?ui-picker=1`) and hands the pick and the
+   screenshot to it with `postMessage`. The enterprise page never talks to the wrangler directly,
+   so no CORS or origin settings change.
+5. The extension's client module, running in that board, uploads the screenshot and opens the
+   board's own new-session dialog: the folder is the enterprise repo, the prompt holds the pick
+   details below an empty first line, and the screenshot is attached as an image. Type your note
+   on the first line, pick the model, effort, worktree and task as for any session, and launch.
+   The agent sees the screenshot directly. The pop-up closes once you launch or cancel.
 
 ## Install
 
-1. In the wrangler, **Settings → Extensions → + Add extension**, paste this repository's git URL,
-   review the capabilities (`sessions:spawn`, `board:broadcast`) and install.
+1. In the wrangler, **Settings → Extensions → + Add extension**, paste this repository's git URL
+   and install. It asks for no host capabilities.
 2. Open `http://localhost:<wrangler port>/ext/ui-picker/install.html` and drag **UI Picker** to your
    bookmarks bar. The bookmarklet is tied to that wrangler's address.
 3. The enterprise web app must be built with the dev JSX transform so components carry their
@@ -40,37 +44,36 @@ On the enterprise app (default `http://localhost:3333` or `:1234`), click the bo
    without one. Chrome asks every time: a web page can't skip that prompt.
 2. Click an element, or drag to capture an area. `Esc` cancels.
 
-Allow pop-ups for the site the first time. While sharing, Chrome's sharing bar appears at the top
+Allow pop-ups for the site the first time. The board takes a few seconds to load in the pop-up;
+if it hasn't said it's ready within 30 seconds the picker gives up with a banner. While sharing, Chrome's sharing bar appears at the top
 of the tab; it goes away as soon as the screenshot is taken (or when you press `Esc`).
 Only this tab can be captured: share another window or screen and the picker carries on without
 a screenshot. Stopping sharing from Chrome's bar does the same, and you can then only click, not
 drag.
 
 If you cancelled the share, or the capture failed, you can still copy a screenshot with ⌘⇧⌃4 and
-paste it into the launch window (PNG, up to 10 MB). A pasted screenshot replaces a captured one.
+paste it into the dialog's prompt box, as for any session. If the captured screenshot can't be
+uploaded, the dialog opens without it and the board says so.
 
 ## Settings
 
 | Setting | Default | Meaning |
 | --- | --- | --- |
-| Repository path | `~/vcs/enterprise` | Checkout new sessions start in. Source paths in picks are shown relative to it. |
-| Allowed page origins | `http://localhost:3333`, `http://localhost:1234` | Sites whose picks the launch window accepts. |
-| Start in a new worktree | on | Off starts the session in the checkout itself. |
-| Task id | none | Board task new sessions are filed under. |
+| Repository path | `~/vcs/enterprise` | Folder the new-session dialog starts in. Source paths in picks are shown relative to it. |
+| Allowed page origins | `http://localhost:3333`, `http://localhost:1234` | Sites whose picks the board accepts. |
+
+Worktree, task, model and effort are chosen in the dialog, which remembers your last choices.
 
 ## Security model
 
-- The launch window accepts a pick only from the tab that opened it, only from an allowed origin,
-  and only in the expected shape. It refuses to run inside a frame.
-- Nothing launches without you clicking **Launch**.
-- Everything captured from the page is treated as untrusted data. The server checks types and
-  sizes, flattens every field to one line, and quotes the HTML in a code fence the HTML can't
-  close. The prompt tells the agent never to follow instructions found in it.
-
-## Housekeeping
-
-Screenshots are saved to `$AW_DATA_DIR/ui-picker/shots/` (or `~/.agent-wrangler/ui-picker/shots/`)
-so the session can read them. They are not deleted automatically; clear the folder when you like.
+- The board acts only when opened as `/?ui-picker=1` by another window, and not inside a frame.
+  It accepts one pick, only from the tab that opened it, only from an allowed origin, and only in
+  the expected shape and size (screenshot: PNG data URL, up to 10 MB; the board's upload checks
+  the bytes too).
+- Nothing launches without you clicking **Launch** in the dialog.
+- Everything captured from the page is treated as untrusted data. Every field is flattened to one
+  line and the HTML is quoted in a code fence it can't close. The prompt tells the agent never to
+  follow instructions found in it.
 
 ## Development
 
