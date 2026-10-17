@@ -29,100 +29,315 @@ test('origin is inserted literally, without $ replacement patterns', () => {
   assert.equal(decodeURIComponent(url.slice('javascript:'.length)).includes('"http://h/$&$1"'), true);
 });
 
-// Smoke test of the real bookmarklet against minimal fakes.
+// Smoke test of the real bookmarklet against minimal fakes. Browser globals
+// (navigator, ImageCapture, requestAnimationFrame, innerWidth/innerHeight) are
+// injected through the Function's parameter list.
 const ORIGIN = 'http://localhost:7777';
+const PNG = 'data:image/png;base64,iVBORw0KGgo=';
+const flush = () => new Promise((r) => setImmediate(r));
 
-function setup() {
+function fakeEl(tag, rect, parentElement = null) {
+  return {
+    tagName: tag, id: '', className: 'x', textContent: tag, outerHTML: `<${tag}></${tag}>`, parentElement,
+    getBoundingClientRect: () => ({ ...rect, left: rect.x, top: rect.y }),
+  };
+}
+
+// capture: 'reject' (user cancelled), 'resolve' (sharing), 'pending' (prompt still open).
+async function setup({ capture = 'reject', png = PNG, grab = 'ok' } = {}) {
   const listeners = [];
   const timers = [];
   const opened = [];
   const posted = [];
   const banners = [];
+  const live = new Set();
+  const drawn = [];
+  const track = { stopped: 0, stop() { this.stopped++; } };
+  const stream = { getTracks: () => [track], getVideoTracks: () => [track] };
+  const gdmCalls = [];
+  let settle;
+  const navigator = {
+    mediaDevices: {
+      getDisplayMedia(opts) {
+        gdmCalls.push(opts);
+        if (capture === 'resolve') return Promise.resolve(stream);
+        if (capture === 'pending') return new Promise((res) => { settle = () => res(stream); });
+        return Promise.reject(new Error('NotAllowedError'));
+      },
+    },
+  };
+  class ImageCapture {
+    constructor(t) { assert.equal(t, track); }
+    grabFrame() {
+      if (grab === 'throw') return Promise.reject(new Error('InvalidStateError'));
+      return Promise.resolve({ width: 2000, height: 1600, close() {} });
+    }
+  }
   const win = { __uiPickerActive: false, popup: {}, open(...a) { opened.push(a); return win.popup; } };
   win.popup = { postMessage: (...a) => posted.push(a) };
-  const mk = () => ({
-    style: { cssText: '' },
-    set textContent(v) { banners.push(v); },
-    remove() {},
-  });
-  const document = { createElement: mk, documentElement: { appendChild() {} } };
+  const mk = (tag) => {
+    if (tag === 'canvas') {
+      return { getContext: () => ({ drawImage: (...a) => drawn.push(a) }), toDataURL: (type) => (type === 'image/png' ? png : '') };
+    }
+    const el = {
+      style: { cssText: '' },
+      set textContent(v) { banners.push(v); },
+      remove() { live.delete(el); },
+    };
+    return el;
+  };
+  const parent = fakeEl('SECTION', { x: 0, y: 0, width: 600, height: 400 });
+  const target = fakeEl('BUTTON', { x: 100, y: 100, width: 50, height: 20 }, parent);
+  const other = fakeEl('SPAN', { x: 200, y: 100, width: 50, height: 20 }, parent);
+  const body = fakeEl('BODY', { x: 0, y: 0, width: 1000, height: 800 });
+  parent.parentElement = body;
+  let underPoint = other;
+  const document = {
+    createElement: mk,
+    body,
+    documentElement: { appendChild(el) { live.add(el); }, append(...els) { els.forEach((el) => live.add(el)); } },
+    elementFromPoint: (x, y) => { document.lastPoint = [x, y]; return underPoint; },
+  };
   const addEventListener = (t, f) => listeners.push([t, f]);
   const removeEventListener = (t, f) => {
     const i = listeners.findIndex(([lt, lf]) => lt === t && lf === f);
     if (i >= 0) listeners.splice(i, 1);
   };
   const setTimeout = (f, ms) => timers.push([f, ms]);
+  const requestAnimationFrame = (f) => queueMicrotask(f);
   const src = decodeURIComponent(buildBookmarklet(read('pick-core.js'), read('bookmarklet-main.js'), ORIGIN).slice('javascript:'.length));
-  new Function('window', 'document', 'addEventListener', 'removeEventListener', 'location', 'devicePixelRatio', 'setTimeout', src)(
-    win, document, addEventListener, removeEventListener, { href: 'http://app/' }, 2, setTimeout);
+  new Function('window', 'document', 'addEventListener', 'removeEventListener', 'location', 'devicePixelRatio', 'setTimeout',
+    'navigator', 'ImageCapture', 'requestAnimationFrame', 'innerWidth', 'innerHeight', src)(
+    win, document, addEventListener, removeEventListener, { href: 'http://app/' }, 2, setTimeout,
+    navigator, ImageCapture, requestAnimationFrame, 1000, 800);
+  if (capture !== 'pending') await flush();
   const fire = (type, ev) => [...listeners].filter(([t]) => t === type).forEach(([, f]) => f(ev));
-  const target = {
-    tagName: 'BUTTON', id: '', className: 'x', textContent: 'Go', outerHTML: '<button>Go</button>', parentElement: null,
-    getBoundingClientRect: () => ({ x: 1, y: 2, width: 3, height: 4, left: 1, top: 2 }),
+  const ev = (o = {}) => ({ target, button: 0, clientX: 110, clientY: 105, preventDefault() {}, stopPropagation() {}, ...o });
+  const click = (o = {}) => { fire('pointerdown', ev(o)); fire('pointerup', ev(o)); };
+  const ready = () => fire('message', { source: win.popup, data: { type: 'ui-picker:ready' } });
+  return {
+    win, listeners, timers, opened, posted, banners, live, drawn, track, gdmCalls, document, target, parent, body,
+    fire, ev, click, ready, settle: async () => { settle(); await flush(); }, setUnderPoint: (el) => { underPoint = el; },
   };
-  const ev = (o = {}) => ({ target, button: 0, preventDefault() {}, stopPropagation() {}, ...o });
-  return { win, listeners, timers, opened, posted, banners, fire, ev };
 }
 
-test('pointerdown opens a uniquely named popup at the exact launch URL', () => {
-  const a = setup();
+test('asks to share the current tab as soon as it runs, before picking is armed', async () => {
+  const t = await setup({ capture: 'pending' });
+  assert.equal(t.gdmCalls.length, 1);
+  assert.deepEqual(t.gdmCalls[0], { video: { displaySurface: 'browser' }, audio: false, preferCurrentTab: true, selfBrowserSurface: 'include' });
+  assert.match(t.banners.at(-1), /share this tab to attach a screenshot \(or Cancel to pick without one\)/);
+  t.click();
+  assert.equal(t.opened.length, 0);
+  await t.settle();
+  assert.match(t.banners.at(-1), /click an element, or drag to capture an area \(Esc to cancel\)/);
+  t.click();
+  assert.equal(t.opened.length, 1);
+});
+
+test('a cancelled share arms plain picking', async () => {
+  const t = await setup();
+  assert.equal(t.banners.at(-1), 'UI Picker: click an element (Esc to cancel)');
+});
+
+test('a missing getDisplayMedia arms plain picking', async () => {
+  const listeners = [];
+  const src = decodeURIComponent(buildBookmarklet(read('pick-core.js'), read('bookmarklet-main.js'), ORIGIN).slice('javascript:'.length));
+  const banners = [];
+  const document = { createElement: () => ({ style: {}, set textContent(v) { banners.push(v); }, remove() {} }), documentElement: { appendChild() {} } };
+  new Function('window', 'document', 'addEventListener', 'removeEventListener', 'setTimeout', 'navigator', src)(
+    {}, document, (t, f) => listeners.push([t, f]), () => {}, () => {}, {});
+  await flush();
+  assert.equal(banners.at(-1), 'UI Picker: click an element (Esc to cancel)');
+  assert.ok(listeners.some(([t]) => t === 'pointerdown'));
+});
+
+test('pointerup opens a uniquely named popup at the exact launch URL', async () => {
+  const a = await setup();
   a.fire('pointerdown', a.ev());
-  const b = setup();
-  b.fire('pointerdown', b.ev());
+  assert.equal(a.opened.length, 0, 'not on pointerdown: a drag may follow');
+  a.fire('pointerup', a.ev());
+  const b = await setup();
+  b.click();
   assert.equal(a.opened[0][0], `${ORIGIN}/ext/ui-picker/launch.html`);
   assert.match(a.opened[0][1], /^ui-picker-[a-z0-9]+$/);
   assert.notEqual(a.opened[0][1], b.opened[0][1]);
 });
 
-test('non-primary buttons do not pick', () => {
-  const t = setup();
-  t.fire('pointerdown', t.ev({ button: 2 }));
+test('non-primary buttons do not pick', async () => {
+  const t = await setup();
+  t.click({ button: 2 });
   assert.equal(t.opened.length, 0);
 });
 
-test('ready from another source is ignored; ready from the popup posts to the origin', () => {
-  const t = setup();
-  t.fire('pointerdown', t.ev());
+test('ready from another source is ignored; ready from the popup posts to the origin', async () => {
+  const t = await setup();
+  t.click();
   t.fire('message', { source: {}, data: { type: 'ui-picker:ready' } });
   assert.equal(t.posted.length, 0);
-  t.fire('message', { source: t.win.popup, data: { type: 'ui-picker:ready' } });
+  t.ready();
   assert.equal(t.posted.length, 1);
   assert.equal(t.posted[0][1], ORIGIN);
   assert.equal(t.posted[0][0].type, 'ui-picker:pick');
   assert.equal(t.posted[0][0].element.tag, 'button');
+  assert.equal('screenshot' in t.posted[0][0], false);
 });
 
-test('no ready within 10s removes the listener and shows a banner', () => {
-  const t = setup();
-  t.fire('pointerdown', t.ev());
+test('no ready within 10s removes the listener and shows a banner', async () => {
+  const t = await setup();
+  t.click();
   const [fn] = t.timers.find(([, m]) => m === 10000);
   fn();
   assert.match(t.banners.at(-1), /launch window didn't respond/);
-  t.fire('message', { source: t.win.popup, data: { type: 'ui-picker:ready' } });
+  t.ready();
   assert.equal(t.posted.length, 0);
 });
 
-test('a blocked popup shows the pop-up banner', () => {
-  const t = setup();
+test('a blocked popup shows the pop-up banner', async () => {
+  const t = await setup();
   t.win.popup = null;
-  t.fire('pointerdown', t.ev());
+  t.click();
   assert.match(t.banners.at(-1), /allow pop-ups/);
 });
 
-test('Esc removes every listener', () => {
-  const t = setup();
+test('Esc removes every listener', async () => {
+  const t = await setup();
   t.fire('keydown', t.ev({ key: 'Escape' }));
   assert.equal(t.listeners.length, 0);
   assert.equal(t.win.__uiPickerActive, false);
 });
 
-test('the click after a pick is swallowed, then all listeners are released', () => {
-  const t = setup();
-  t.fire('pointerdown', t.ev());
+test('the click after a pick is swallowed, then all listeners are released', async () => {
+  const t = await setup();
+  t.click();
   let stopped = 0;
   t.fire('click', t.ev({ stopPropagation: () => stopped++ }));
   assert.equal(stopped, 1);
-  t.fire('pointerup', t.ev());
   t.timers.filter(([, m]) => m === 0).forEach(([f]) => f());
   assert.equal(t.listeners.filter(([type]) => type !== 'message').length, 0);
+  assert.equal(t.win.__uiPickerActive, false);
+});
+
+test('with capture, a click sends the padded element area as a screenshot and stops sharing', async () => {
+  const t = await setup({ capture: 'resolve' });
+  t.click();
+  assert.equal(t.opened.length, 1, 'the popup opens before any await');
+  t.ready();
+  await flush();
+  assert.equal(t.track.stopped > 0, true);
+  assert.equal(t.live.size, 0, 'overlays and banners are gone before the grab');
+  // Element 100,100 50x20 padded by 8 -> 92,92 66x36; frame is 2000 wide for 1000 CSS px.
+  assert.deepEqual(t.drawn[0].slice(1), [184, 184, 132, 72, 0, 0, 132, 72]);
+  assert.equal(t.posted.length, 1);
+  const pick = t.posted[0][0];
+  assert.equal(pick.screenshot, PNG);
+  assert.equal(pick.element.tag, 'button');
+  assert.deepEqual({ ...pick.rect, dpr: undefined }, { x: 92, y: 92, width: 66, height: 36, dpr: undefined });
+});
+
+test('with capture, the pick waits for the grab even when the popup is ready first', async () => {
+  const t = await setup({ capture: 'resolve' });
+  t.click();
+  t.ready();
+  assert.equal(t.posted.length, 0);
+  await flush();
+  assert.equal(t.posted.length, 1);
+});
+
+test('a drag past 4px picks the smallest element containing the area', async () => {
+  const t = await setup({ capture: 'resolve' });
+  t.fire('pointerdown', t.ev({ clientX: 90, clientY: 90 }));
+  t.fire('pointermove', t.ev({ clientX: 92, clientY: 92 }));
+  assert.equal(t.opened.length, 0);
+  t.fire('pointermove', t.ev({ clientX: 260, clientY: 125 }));
+  t.fire('pointerup', t.ev({ clientX: 260, clientY: 125 }));
+  t.ready();
+  await flush();
+  assert.deepEqual(t.document.lastPoint, [175, 107.5]);
+  const pick = t.posted[0][0];
+  assert.equal(pick.element.tag, 'section', 'the span under the centre does not contain the area; its parent does');
+  assert.deepEqual({ ...pick.rect, dpr: undefined }, { x: 90, y: 90, width: 170, height: 35, dpr: undefined });
+  assert.deepEqual(t.drawn[0].slice(1, 5), [180, 180, 340, 70]);
+  assert.equal(pick.screenshot, PNG);
+});
+
+test('a drag with nothing containing it falls back to the body', async () => {
+  const t = await setup();
+  t.setUnderPoint(null);
+  t.fire('pointerdown', t.ev({ clientX: 10, clientY: 10 }));
+  t.fire('pointermove', t.ev({ clientX: 100, clientY: 100 }));
+  t.fire('pointerup', t.ev({ clientX: 100, clientY: 100 }));
+  t.ready();
+  assert.equal(t.posted[0][0].element.tag, 'body');
+});
+
+test('movement of 4px or less is still a click on the pressed element', async () => {
+  const t = await setup();
+  t.fire('pointerdown', t.ev());
+  t.fire('pointermove', t.ev({ clientX: 113, clientY: 105 }));
+  t.fire('pointerup', t.ev({ clientX: 113, clientY: 105 }));
+  t.ready();
+  assert.equal(t.posted[0][0].element.tag, 'button');
+});
+
+test('a failed grab picks without a screenshot and says so', async () => {
+  const t = await setup({ capture: 'resolve', grab: 'throw' });
+  t.click();
+  t.ready();
+  await flush();
+  assert.equal(t.posted.length, 1);
+  assert.equal('screenshot' in t.posted[0][0], false);
+  assert.match(t.banners.at(-1), /screenshot failed — paste one instead/);
+  assert.equal(t.track.stopped > 0, true);
+});
+
+test('an oversized screenshot is dropped', async () => {
+  const t = await setup({ capture: 'resolve', png: 'data:image/png;base64,' + 'A'.repeat(15 * 1024 * 1024) });
+  t.click();
+  t.ready();
+  await flush();
+  assert.equal('screenshot' in t.posted[0][0], false);
+  assert.match(t.banners.at(-1), /screenshot failed/);
+});
+
+test('Esc stops sharing', async () => {
+  const t = await setup({ capture: 'resolve' });
+  t.fire('keydown', t.ev({ key: 'Escape' }));
+  assert.equal(t.track.stopped > 0, true);
+  assert.equal(t.listeners.length, 0);
+});
+
+test('Esc while the share prompt is open stops the stream once it arrives, without arming', async () => {
+  const t = await setup({ capture: 'pending' });
+  t.fire('keydown', t.ev({ key: 'Escape' }));
+  assert.equal(t.live.size, 0, 'the share banner is gone');
+  await t.settle();
+  assert.equal(t.track.stopped > 0, true);
+  assert.equal(t.listeners.length, 0);
+});
+
+test('a blocked popup stops sharing', async () => {
+  const t = await setup({ capture: 'resolve' });
+  t.win.popup = null;
+  t.click();
+  assert.equal(t.track.stopped > 0, true);
+});
+
+test('the 10s timeout stops sharing even if the grab has not finished', async () => {
+  const t = await setup({ capture: 'resolve' });
+  t.click();
+  const [fn] = t.timers.find(([, m]) => m === 10000);
+  fn();
+  assert.equal(t.track.stopped > 0, true);
+  await flush();
+  t.ready();
+  assert.equal(t.posted.length, 0);
+});
+
+test('a drag cannot select text or start the page drag and drop', async () => {
+  const t = await setup();
+  for (const type of ['selectstart', 'dragstart']) {
+    let prevented = 0;
+    t.fire(type, t.ev({ preventDefault: () => prevented++ }));
+    assert.equal(prevented, 1, type);
+  }
 });
