@@ -6,14 +6,20 @@ about it.
 
 ## How it works
 
-1. A bookmarklet highlights the element under the mouse. Clicking reads the React fiber for the
-   element's JSX file:line and the chain of components that rendered it.
-2. It opens a launch window served by your wrangler (`/ext/ui-picker/launch.html`) and hands the
-   pick to it with `postMessage`. The enterprise page never talks to the wrangler directly, so no
-   CORS or origin settings change.
-3. In the launch window you write a note and optionally paste a screenshot.
-   **Launch** starts a session in the enterprise repo (in a new worktree by default) with your
-   note and the pick details as its prompt.
+1. The bookmarklet asks Chrome to share the current tab. Share it to attach a screenshot, or
+   Cancel to pick without one.
+2. It highlights the element under the mouse. Click an element, or drag a rectangle around an
+   area. A click picks that element; a drag picks the smallest element that contains the whole
+   area. Either way it reads the React fiber for the element's JSX file:line and the chain of
+   components that rendered it.
+3. If you shared the tab, it grabs one frame, crops it to the element (with a small margin) or to
+   the dragged area, and stops sharing straight away.
+4. It opens a launch window served by your wrangler (`/ext/ui-picker/launch.html`) and hands the
+   pick and the screenshot to it with `postMessage`. The enterprise page never talks to the
+   wrangler directly, so no CORS or origin settings change.
+5. In the launch window you write a note. The captured screenshot is attached already; paste
+   another to replace it, or remove it. **Launch** starts a session in the enterprise repo (in a
+   new worktree by default) with your note and the pick details as its prompt.
 
 ## Install
 
@@ -28,10 +34,17 @@ about it.
 
 ## Use
 
-On the enterprise app (default `http://localhost:3333` or `:1234`), click the bookmark, then click
-an element. `Esc` cancels. Allow pop-ups for the site the first time.
+On the enterprise app (default `http://localhost:3333` or `:1234`), click the bookmark.
 
-To attach a screenshot, copy one with ⌘⇧⌃4 and paste it into the launch window (PNG, up to 10 MB).
+1. Chrome asks to share this tab. Choose **Share** to attach a screenshot, or **Cancel** to pick
+   without one. Chrome asks every time: a web page can't skip that prompt.
+2. Click an element, or drag to capture an area. `Esc` cancels.
+
+Allow pop-ups for the site the first time. While sharing, Chrome's sharing bar appears at the top
+of the tab; it goes away as soon as the screenshot is taken (or when you press `Esc`).
+
+If you cancelled the share, or the capture failed, you can still copy a screenshot with ⌘⇧⌃4 and
+paste it into the launch window (PNG, up to 10 MB). A pasted screenshot replaces a captured one.
 
 ## Settings
 
