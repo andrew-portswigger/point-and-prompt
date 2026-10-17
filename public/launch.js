@@ -30,7 +30,8 @@ function start() {
   ws.addEventListener('close', () => {
     clearTimeout(pending?.timer);
     lost = true;
-    if (!pending?.done) status('Lost connection to the wrangler. Close this window and pick again.', true);
+    if (pending && !pending.done) status('Lost connection to the wrangler. The session may have started — check the board before picking again.', true);
+    else if (!pending) status('Lost connection to the wrangler. Close this window and pick again.', true);
     refresh();
   });
 
@@ -114,7 +115,6 @@ function start() {
       // Keep the request after the timeout: the session may still have started, and a
       // late result must be recognised rather than inviting a duplicate launch.
       timer: setTimeout(() => {
-        pending.timedOut = true;
         if (!lost) status('No reply within 60s. The session may still have started — check the board before trying again.', true);
       }, 60000),
     };
