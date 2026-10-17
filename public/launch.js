@@ -109,7 +109,8 @@ function start() {
   $('form').addEventListener('submit', (e) => {
     e.preventDefault();
     if ($('launch').disabled) return;
-    const requestId = crypto.randomUUID();
+    // getRandomValues, unlike randomUUID, also works on a non-localhost http origin.
+    const requestId = [...crypto.getRandomValues(new Uint8Array(16))].map((b) => b.toString(16).padStart(2, '0')).join('');
     pending = {
       requestId,
       // Keep the request after the timeout: the session may still have started, and a

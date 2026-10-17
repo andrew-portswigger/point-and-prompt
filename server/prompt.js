@@ -12,7 +12,12 @@ export function oneLine(s, max) {
   return String(s).replace(/[\p{Cc}\u2028\u2029]+/gu, ' ').trim().slice(0, max);
 }
 
-const fence = (s) => s.replaceAll('```', '`​``');
+// A fence longer than any backtick run inside the html can't be closed by it,
+// so the html is quoted verbatim.
+function fenceFor(s) {
+  const longest = Math.max(0, ...(s.match(/`+/g) || []).map((r) => r.length));
+  return '`'.repeat(Math.max(3, longest + 1));
+}
 
 export function buildIntent({ action, note, pick, repoPath, shotPath }) {
   const el = pick.element;
@@ -25,12 +30,13 @@ export function buildIntent({ action, note, pick, repoPath, shotPath }) {
     `<${tag}${id ? `#${id}` : ''}${classes.length ? `.${classes.join('.')}` : ''}>`,
     text ? `"${text}"` : '',
   ].filter(Boolean).join(' ');
+  const fence = fenceFor(pick.html);
   const rel = (at) => {
     const r = relativise(at, repoPath);
     return r ? oneLine(r, MAX_PATH) || null : null;
   };
   const owners = pick.owners.length
-    ? pick.owners.map((o) => `  ${oneLine(o.name, MAX_PATH)} (${rel(o.at) || 'no source'})`).join('\n')
+    ? pick.owners.map((o) => `  ${f(o.name)} (${rel(o.at) || 'no source'})`).join('\n')
     : '  none';
   return [
     `Use the \`${ACTIONS[action]}\` skill.`,
@@ -48,8 +54,8 @@ export function buildIntent({ action, note, pick, repoPath, shotPath }) {
     `Screenshot: ${shotPath || 'none'}`,
     '',
     'Element HTML (truncated):',
-    '```html',
-    fence(pick.html),
-    '```',
+    `${fence}html`,
+    pick.html,
+    fence,
   ].join('\n');
 }
