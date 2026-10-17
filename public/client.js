@@ -3,7 +3,7 @@
 // page that opened it and opens the board's own new-session dialog with the
 // pick as the prompt and the screenshot attached. Everywhere else it does nothing.
 import { DEFAULT_REPO_PATH } from './defaults.js';
-import { allowedOriginsFrom, isAcceptedPick } from './launch-core.js';
+import { allowedOriginsFrom, isAcceptedPick } from './pick-check.js';
 import { buildIntent } from './prompt.js';
 
 const PNG_PREFIX = 'data:image/png;base64,';
@@ -39,8 +39,13 @@ export function startPicker({ api, win, loc, onLaunch = () => {} }) {
     try {
       await api.openDispatch({ intent: buildIntent({ pick: rest, repoPath }), cwd: repoPath, images: name ? [name] : [] });
     } catch (err) {
-      api.ui.notify({ id: 'dispatch', title: "Couldn't open the new-session dialog", body: String(err?.message || err) });
-      return;
+      // e.g. another launch is still awaiting its ack. Staged names are
+      // single-use, so a retry stages the screenshot again from the pick.
+      const choice = await api.ui.notify({
+        id: 'dispatch', title: "Couldn't open the new-session dialog", body: String(err?.message || err),
+        actions: [{ id: 'retry', label: 'Retry', primary: true }],
+      });
+      if (choice === 'retry') return launch(pick);
     }
     win.close();
   }
@@ -51,8 +56,9 @@ export function startPicker({ api, win, loc, onLaunch = () => {} }) {
     onLaunch(launch(e.data));
   };
   win.addEventListener('message', onMessage);
-  // The opener is the page that picked; it waits for this before sending the pick.
-  opener.postMessage({ type: 'ui-picker:ready' }, '*');
+  // The opener is the page that picked; it waits for this before sending the
+  // pick. Addressed to each allowed origin, so any other opener gets nothing.
+  for (const origin of allowed) opener.postMessage({ type: 'ui-picker:ready' }, origin);
   return true;
 }
 

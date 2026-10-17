@@ -55,6 +55,9 @@ test('relativise with a ~/ repo path leaves non-matching paths absolute', () => 
   assert.equal(relativise('/elsewhere/A.js:3', '~/vcs/enterprise'), '/elsewhere/A.js:3');
   // The repo must sit below some directory, not at the filesystem root.
   assert.equal(relativise('/vcs/enterprise/A.js:3', '~/vcs/enterprise'), '/vcs/enterprise/A.js:3');
+  // Only directly under a two-level home (/Users/me, /home/me), not deeper.
+  assert.equal(relativise('/Users/me/tmp/vcs/enterprise/src/A.js', '~/vcs/enterprise'), '/Users/me/tmp/vcs/enterprise/src/A.js');
+  assert.equal(relativise('/Users/me/vcs/enterprise-other/src/A.js', '~/vcs/enterprise'), '/Users/me/vcs/enterprise-other/src/A.js');
   // A relative source path is not under any home directory.
   assert.equal(relativise('vcs/enterprise/A.js:3', '~/vcs/enterprise'), 'vcs/enterprise/A.js:3');
 });

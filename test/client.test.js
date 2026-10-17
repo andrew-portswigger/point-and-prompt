@@ -13,7 +13,7 @@ const pick = {
   owners: [{ name: 'Foo', at: null }],
 };
 
-function setup({ search = '?ui-picker=1', opener = { posted: [] }, framed = false, settings = {}, stage, openDispatch } = {}) {
+function setup({ search = '?ui-picker=1', opener = { posted: [] }, framed = false, settings = {}, stage, openDispatch, notify } = {}) {
   if (opener) opener.postMessage = (msg, target) => opener.posted.push([msg, target]);
   const listeners = new Set();
   const win = {
@@ -26,17 +26,17 @@ function setup({ search = '?ui-picker=1', opener = { posted: [] }, framed = fals
   win.top = framed ? {} : win;
   const calls = { stage: [], openDispatch: [], notify: [] };
   const api = {
-    settings: () => ({ ...settings }),
+    settings: () => (settings === undefined ? undefined : { ...settings }),
     images: { stage: (blob) => { calls.stage.push(blob); return stage ? stage(blob) : Promise.resolve({ name: 'img-1.png' }); } },
     openDispatch: (opts) => { calls.openDispatch.push(opts); return openDispatch ? openDispatch(opts) : Promise.resolve({ type: 'dispatched' }); },
-    ui: { notify: (o) => { calls.notify.push(o); return Promise.resolve(null); } },
+    ui: { notify: (o) => { calls.notify.push(o); return notify ? notify(o) : Promise.resolve(null); } },
   };
   const launches = [];
   const started = startPicker({ api, win, loc: { search }, onLaunch: (p) => launches.push(p) });
   const send = (data, { origin = 'http://localhost:3333', source = opener } = {}) => {
     for (const f of [...listeners]) f({ data, origin, source });
   };
-  return { started, win, opener, calls, send, listeners, launches };
+  return { started, win, opener, calls, send, listeners, launches, api };
 }
 
 test('does nothing without ?ui-picker', () => {
@@ -58,10 +58,33 @@ test('does nothing inside a frame', () => {
   assert.deepEqual(t.opener.posted, []);
 });
 
-test('posts ready to the opener', () => {
+test('posts ready to the opener once per allowed origin, never to *', () => {
   const t = setup();
   assert.equal(t.started, true);
-  assert.deepEqual(t.opener.posted, [[{ type: 'ui-picker:ready' }, '*']]);
+  assert.deepEqual(t.opener.posted, [
+    [{ type: 'ui-picker:ready' }, 'http://localhost:3333'],
+    [{ type: 'ui-picker:ready' }, 'http://localhost:1234'],
+  ]);
+});
+
+test('ready goes only to the allowedOrigins setting when set', () => {
+  const t = setup({ settings: { allowedOrigins: ['http://app:9'] } });
+  assert.deepEqual(t.opener.posted, [[{ type: 'ui-picker:ready' }, 'http://app:9']]);
+});
+
+test('settings() returning undefined falls back to the defaults', async () => {
+  const t = setup({ settings: undefined });
+  assert.equal(t.opener.posted.length, 2);
+  t.send(pick);
+  await Promise.all(t.launches);
+  assert.equal(t.calls.openDispatch[0].cwd, '~/vcs/enterprise');
+});
+
+test('a blank repoPath falls back to the default folder', async () => {
+  const t = setup({ settings: { repoPath: '   ' } });
+  t.send(pick);
+  await Promise.all(t.launches);
+  assert.equal(t.calls.openDispatch[0].cwd, '~/vcs/enterprise');
 });
 
 test('ignores picks from another source, a disallowed origin or of the wrong shape', async () => {
@@ -149,13 +172,34 @@ test('closes only after the dialog resolves, launched or cancelled', async () =>
   assert.equal(t.win.closed, 1);
 });
 
-test('a rejected openDispatch says so and leaves the window open', async () => {
-  const t = setup({ openDispatch: () => Promise.reject(new Error('busy')) });
+test('a rejected openDispatch offers Retry and keeps the window open while the card is up', async () => {
+  let answer;
+  const t = setup({ openDispatch: () => Promise.reject(new Error('busy')), notify: () => new Promise((r) => { answer = r; }) });
   t.send(pick);
-  await Promise.all(t.launches);
+  await flush();
   assert.equal(t.win.closed, 0);
   assert.equal(t.calls.notify.length, 1);
   assert.match(t.calls.notify[0].body, /busy/);
+  assert.deepEqual(t.calls.notify[0].actions, [{ id: 'retry', label: 'Retry', primary: true }]);
+  answer(null);
+  await Promise.all(t.launches);
+  assert.equal(t.calls.openDispatch.length, 1);
+  assert.equal(t.win.closed, 1, 'closing the card closes the window');
+});
+
+test('Retry re-stages the screenshot and opens the dialog again', async () => {
+  let attempts = 0;
+  let staged = 0;
+  const t = setup({
+    stage: () => Promise.resolve({ name: `img-${++staged}.png` }),
+    openDispatch: () => (++attempts === 1 ? Promise.reject(new Error('busy')) : Promise.resolve({ type: 'dispatched' })),
+    notify: (o) => Promise.resolve(o.id === 'dispatch' ? 'retry' : null),
+  });
+  t.send({ ...pick, screenshot: PNG });
+  await Promise.all(t.launches);
+  assert.equal(t.calls.stage.length, 2);
+  assert.deepEqual(t.calls.openDispatch.map((o) => o.images), [['img-1.png'], ['img-2.png']]);
+  assert.equal(t.win.closed, 1);
 });
 
 test('pngBlob decodes the data URL', async () => {
@@ -163,17 +207,24 @@ test('pngBlob decodes the data URL', async () => {
   assert.deepEqual([...new Uint8Array(await blob.arrayBuffer())], PNG_BYTES);
 });
 
-test('register runs the picker on the real window and location with registrar.api', () => {
+test('register runs the picker on the real window and location with registrar.api', async () => {
   const posted = [];
-  const win = { opener: { postMessage: (m) => posted.push(m) }, addEventListener() {} };
+  const opened = [];
+  const api = { settings: () => ({ allowedOrigins: ['http://a:1'] }), openDispatch: (o) => { opened.push(o); return Promise.resolve(null); }, images: {}, ui: {} };
+  let onMsg;
+  const win = { opener: { postMessage: (m) => posted.push(m) }, addEventListener: (t, f) => { onMsg = f; }, removeEventListener() {}, close() {} };
   win.top = win;
   globalThis.window = win;
   globalThis.location = { search: '?ui-picker=1' };
   try {
-    client.register({ api: { settings: () => ({}) } });
+    client.register({ api });
   } finally {
     delete globalThis.window;
     delete globalThis.location;
   }
   assert.deepEqual(posted, [{ type: 'ui-picker:ready' }]);
+  // The api used is registrar.api itself: its openDispatch receives the launch.
+  onMsg({ data: pick, origin: 'http://a:1', source: win.opener });
+  await flush();
+  assert.equal(opened.length, 1);
 });

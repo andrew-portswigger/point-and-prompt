@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { allowedOriginsFrom, isAcceptedPick, isWellFormedPick } from '../public/launch-core.js';
+import { allowedOriginsFrom, isAcceptedPick, isWellFormedPick } from '../public/pick-check.js';
 import { DEFAULT_ALLOWED_ORIGINS, MAX_CLASSES, MAX_HTML, MAX_OWNERS, MAX_SHOT_BYTES } from '../public/defaults.js';
 
 test('allowedOriginsFrom reads our settings values', () => {

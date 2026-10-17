@@ -1,17 +1,17 @@
 import { MAX_URL, MAX_FIELD, MAX_PATH } from './defaults.js';
 
 // Runs in the browser, which doesn't know the home directory: a `~/x` repo
-// path matches the first `/x/` below some top-level directory of an absolute
-// path (e.g. /Users/me/x/), so any user's home works. A bare `~` can't be
-// placed and leaves paths absolute.
+// path matches `/x/` directly under a two-level home-style prefix
+// (`^/[^/]+/[^/]+`, e.g. /Users/me or /home/me), so any user's home works and
+// a deeper `/x/` (/Users/me/tmp/x/) doesn't. A bare `~` leaves paths absolute.
 export function relativise(at, repoPath) {
   if (!at) return null;
   const root = repoPath.endsWith('/') ? repoPath : `${repoPath}/`;
   if (root.startsWith('~/')) {
     const tail = root.slice(1); // '/x/'
-    if (tail === '/' || !at.startsWith('/')) return at;
-    const i = at.indexOf(tail, 1);
-    return i > 0 ? at.slice(i + tail.length) : at;
+    if (tail === '/') return at;
+    const home = at.match(/^\/[^/]+\/[^/]+/);
+    return home && at.startsWith(tail, home[0].length) ? at.slice(home[0].length + tail.length) : at;
   }
   if (root.startsWith('~')) return at;
   return at.startsWith(root) ? at.slice(root.length) : at;

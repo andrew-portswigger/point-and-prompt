@@ -1,3 +1,5 @@
+> Superseded — see README; the extension now launches through the board's new-session dialog (api.openDispatch).
+
 # UI Picker — design
 
 **Date:** 2026-10-17
