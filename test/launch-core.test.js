@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { allowedOriginsFrom, isAcceptedPick, isWellFormedPick, isOurResult, launchFrame } from '../public/launch-core.js';
-import { DEFAULT_ALLOWED_ORIGINS } from '../public/defaults.js';
+import { DEFAULT_ALLOWED_ORIGINS, MAX_SHOT_BYTES } from '../public/defaults.js';
 
 const graph = (values) => ({ extensions: [{ id: 'other', settingValues: { allowedOrigins: ['http://evil'] } }, { id: 'ui-picker', settingValues: values }] });
 
@@ -68,4 +68,25 @@ test('isWellFormedPick accepts a good pick and rejects malformed shapes', () => 
 
 test('isAcceptedPick rejects a malformed pick from an allowed opener', () => {
   assert.equal(isAcceptedPick({ ...ok, data: { type: 'ui-picker:pick', version: 1 } }, ['http://localhost:3333'], opener), false);
+});
+
+const PNG = 'data:image/png;base64,iVBORw0KGgo=';
+
+test('isWellFormedPick takes an optional PNG data URL screenshot within the cap', () => {
+  const { screenshot, ...noShot } = { ...goodPick };
+  assert.equal(screenshot, undefined);
+  assert.equal(isWellFormedPick(noShot), true);
+  assert.equal(isWellFormedPick({ ...goodPick, screenshot: PNG }), true);
+  assert.equal(isWellFormedPick({ ...goodPick, screenshot: 'data:image/jpeg;base64,AAAA' }), false);
+  assert.equal(isWellFormedPick({ ...goodPick, screenshot: 'data:image/png,raw' }), false);
+  assert.equal(isWellFormedPick({ ...goodPick, screenshot: 42 }), false);
+  assert.equal(isWellFormedPick({ ...goodPick, screenshot: null }), false);
+  const max = Math.floor(MAX_SHOT_BYTES / 3) * 4;
+  assert.equal(isWellFormedPick({ ...goodPick, screenshot: 'data:image/png;base64,' + 'A'.repeat(max) }), true);
+  assert.equal(isWellFormedPick({ ...goodPick, screenshot: 'data:image/png;base64,' + 'A'.repeat(max + 4) }), false);
+});
+
+test('launchFrame keeps the screenshot out of the pick', () => {
+  const f = launchFrame({ requestId: 'r1', pick: { a: 1, screenshot: PNG }, note: 'n', screenshot: PNG });
+  assert.deepEqual(f, { type: 'ui-picker-launch', requestId: 'r1', pick: { a: 1 }, note: 'n', screenshot: PNG });
 });

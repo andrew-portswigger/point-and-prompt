@@ -12,6 +12,18 @@ function start() {
   let pending = null; // { requestId, timer, done }
   let lost = false;
 
+  // Show a PNG data URL as the attached screenshot; a later paste replaces it.
+  function attach(dataUrl) {
+    screenshot = dataUrl;
+    const img = document.createElement('img');
+    img.src = screenshot;
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.textContent = 'Remove screenshot';
+    remove.onclick = () => { screenshot = null; $('paste').textContent = 'Paste a screenshot (⌘V) — optional'; };
+    $('paste').replaceChildren(img, remove);
+  }
+
   if (!opener) status('Open this from the UI Picker bookmarklet on an allowed page.', true);
 
   const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`);
@@ -68,6 +80,8 @@ function start() {
       li.textContent = `${o.name}${o.at ? ' — ' + o.at : ''}`;
       $('p-owners').append(li);
     }
+    // launchFrame strips it from the pick; it travels as the frame's screenshot.
+    if (pick.screenshot) attach(pick.screenshot);
     $('pick').hidden = false;
     $('form').hidden = false;
     status('Add a note and launch.');
@@ -92,16 +106,7 @@ function start() {
       return;
     }
     const reader = new FileReader();
-    reader.onload = () => {
-      screenshot = reader.result;
-      const img = document.createElement('img');
-      img.src = screenshot;
-      const remove = document.createElement('button');
-      remove.type = 'button';
-      remove.textContent = 'Remove screenshot';
-      remove.onclick = () => { screenshot = null; $('paste').textContent = 'Paste a screenshot (⌘V) — optional'; };
-      $('paste').replaceChildren(img, remove);
-    };
+    reader.onload = () => attach(reader.result);
     reader.readAsDataURL(file);
   });
 
