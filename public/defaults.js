@@ -7,3 +7,6 @@ export const MAX_NOTE = 4096;
 export const MAX_HTML = 4096;
 export const MAX_SHOT_BYTES = 10 * 1024 * 1024;
 export const MAX_OWNERS = 8;
+export const MAX_URL = 2048;
+export const MAX_FIELD = 256;
+export const MAX_PATH = 512;

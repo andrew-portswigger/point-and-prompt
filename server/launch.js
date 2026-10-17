@@ -1,6 +1,6 @@
 import nodeFs from 'node:fs/promises';
 import path from 'node:path';
-import { ACTIONS, DEFAULT_REPO_PATH, MAX_NOTE, MAX_SHOT_BYTES } from '../public/defaults.js';
+import { ACTIONS, DEFAULT_REPO_PATH, MAX_HTML, MAX_NOTE, MAX_OWNERS, MAX_SHOT_BYTES } from '../public/defaults.js';
 import { expandHome, shotsDir as defaultShotsDir } from './paths.js';
 import { buildIntent } from './prompt.js';
 
@@ -11,12 +11,22 @@ const isStr = (v) => typeof v === 'string';
 // The frame comes from a same-origin page, but the pick inside it came from
 // another site: check shape and size, never trust content.
 export function validateLaunch(msg) {
-  if (!isStr(msg.requestId) || !/^[A-Za-z0-9-]{1,64}$/.test(msg.requestId)) throw new Error('ui-picker: bad requestId');
-  if (!Object.hasOwn(ACTIONS, msg.action)) throw new Error('ui-picker: unknown action');
-  if (!isStr(msg.note) || !msg.note.trim() || msg.note.length > MAX_NOTE) throw new Error('ui-picker: note must be 1-4096 characters');
+  const bad = (what) => { throw new Error(`ui-picker: ${what}`); };
+  if (!msg || typeof msg !== 'object') bad('bad frame');
+  if (!isStr(msg.requestId) || !/^[A-Za-z0-9-]{1,64}$/.test(msg.requestId)) bad('bad requestId');
+  if (!Object.hasOwn(ACTIONS, msg.action)) bad('unknown action');
+  if (!isStr(msg.note) || !msg.note.trim() || msg.note.length > MAX_NOTE) bad(`note must be 1-${MAX_NOTE} characters`);
   const p = msg.pick;
-  if (!p || !isStr(p.url) || !isStr(p.html) || !Array.isArray(p.owners) || !p.element || !isStr(p.element.tag)) {
-    throw new Error('ui-picker: malformed pick');
+  if (!p || typeof p !== 'object' || !p.element || typeof p.element !== 'object') bad('malformed pick');
+  if (!isStr(p.url)) bad('malformed pick: url');
+  if (!isStr(p.html) || p.html.length > MAX_HTML) bad('malformed pick: html');
+  if (p.jsxAt != null && !isStr(p.jsxAt)) bad('malformed pick: jsxAt');
+  const el = p.element;
+  if (!isStr(el.tag) || !isStr(el.id) || !isStr(el.text)) bad('malformed pick: element');
+  if (!Array.isArray(el.classes) || el.classes.length > 3 || !el.classes.every(isStr)) bad('malformed pick: classes');
+  if (!Array.isArray(p.owners) || p.owners.length > MAX_OWNERS) bad('malformed pick: owners');
+  for (const o of p.owners) {
+    if (!o || typeof o !== 'object' || !isStr(o.name) || (o.at != null && !isStr(o.at))) bad('malformed pick: owner');
   }
   if (msg.screenshot != null) {
     if (!isStr(msg.screenshot) || !msg.screenshot.startsWith(PNG_PREFIX)) throw new Error('ui-picker: screenshot must be a PNG');
@@ -32,25 +42,31 @@ export function createLaunchHandler({ fs = nodeFs, shotsDir = defaultShotsDir, n
     type: 'ui-picker-launch',
     async handler(msg, host) {
       validateLaunch(msg);
-      const repoSetting = host.settings.get('repoPath') || DEFAULT_REPO_PATH;
-      let shotPath = null;
-      if (msg.screenshot) {
-        const dir = shotsDir();
-        await fs.mkdir(dir, { recursive: true });
-        shotPath = path.join(dir, `${now()}-${msg.requestId}.png`);
-        await fs.writeFile(shotPath, Buffer.from(msg.screenshot.slice(PNG_PREFIX.length), 'base64'));
-      }
+      const repoSetting = (host.settings.get('repoPath') || '').trim() || DEFAULT_REPO_PATH;
+      // Build everything that can throw before touching the disk.
+      const dir = msg.screenshot ? shotsDir() : null;
+      const shotPath = dir ? path.join(dir, `${now()}-${msg.requestId}.png`) : null;
       const intent = buildIntent({
         action: msg.action, note: msg.note.trim(), pick: msg.pick, repoPath: expandHome(repoSetting), shotPath,
       });
+      if (shotPath) {
+        await fs.mkdir(dir, { recursive: true });
+        await fs.writeFile(shotPath, Buffer.from(msg.screenshot.slice(PNG_PREFIX.length), 'base64'));
+      }
       const taskId = host.settings.get('taskId') || undefined;
-      const { sessionId } = await host.sessions.spawn({
-        cwd: repoSetting,
-        intent,
-        worktree: host.settings.get('useWorktree') === false ? undefined : { auto: true },
-        addDirs: shotPath ? [path.dirname(shotPath)] : undefined,
-        taskId,
-      });
+      let sessionId;
+      try {
+        ({ sessionId } = await host.sessions.spawn({
+          cwd: repoSetting,
+          intent,
+          worktree: host.settings.get('useWorktree') === false ? undefined : { auto: true },
+          addDirs: shotPath ? [dir] : undefined,
+          taskId,
+        }));
+      } catch (err) {
+        if (shotPath) await fs.unlink(shotPath).catch(() => {});
+        throw err;
+      }
       host.broadcast({ requestId: msg.requestId, sessionId });
     },
   };
