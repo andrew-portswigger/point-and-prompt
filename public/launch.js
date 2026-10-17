@@ -122,7 +122,7 @@ function start() {
     refresh();
     status('Launching…');
     ws.send(JSON.stringify(launchFrame({
-      requestId, pick, note: $('note').value.trim(), action: new FormData($('form')).get('action'), screenshot,
+      requestId, pick, note: $('note').value.trim(), screenshot,
     })));
   });
 }

@@ -1,6 +1,6 @@
 import nodeFs from 'node:fs/promises';
 import path from 'node:path';
-import { ACTIONS, DEFAULT_REPO_PATH, MAX_CLASSES, MAX_HTML, MAX_NOTE, MAX_OWNERS, MAX_SHOT_BYTES } from '../public/defaults.js';
+import { DEFAULT_REPO_PATH, MAX_CLASSES, MAX_HTML, MAX_NOTE, MAX_OWNERS, MAX_SHOT_BYTES } from '../public/defaults.js';
 import { expandHome, shotsDir as defaultShotsDir } from './paths.js';
 import { buildIntent } from './prompt.js';
 
@@ -14,7 +14,6 @@ export function validateLaunch(msg) {
   const bad = (what) => { throw new Error(`ui-picker: ${what}`); };
   if (!msg || typeof msg !== 'object') bad('bad frame');
   if (!isStr(msg.requestId) || !/^[A-Za-z0-9-]{1,64}$/.test(msg.requestId)) bad('bad requestId');
-  if (!Object.hasOwn(ACTIONS, msg.action)) bad('unknown action');
   if (!isStr(msg.note) || !msg.note.trim() || msg.note.length > MAX_NOTE) bad(`note must be 1-${MAX_NOTE} characters`);
   const p = msg.pick;
   if (!p || typeof p !== 'object' || !p.element || typeof p.element !== 'object') bad('malformed pick');
@@ -47,7 +46,7 @@ export function createLaunchHandler({ fs = nodeFs, shotsDir = defaultShotsDir, n
       const dir = msg.screenshot ? shotsDir() : null;
       const shotPath = dir ? path.join(dir, `${now()}-${msg.requestId}.png`) : null;
       const intent = buildIntent({
-        action: msg.action, note: msg.note.trim(), pick: msg.pick, repoPath: expandHome(repoSetting), shotPath,
+        note: msg.note.trim(), pick: msg.pick, repoPath: expandHome(repoSetting), shotPath,
       });
       if (shotPath) {
         await fs.mkdir(dir, { recursive: true });

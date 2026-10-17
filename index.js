@@ -16,5 +16,5 @@ export default {
     { key: 'taskId', type: 'text', label: 'Task id', help: 'Optional board task new sessions are filed under.' },
   ],
   handlers: [createLaunchHandler()],
-  skills: ['ui-fix', 'ui-make-reusable'],
+  skills: [],
 };

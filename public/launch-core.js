@@ -32,6 +32,6 @@ export function isOurResult(frame, requestId) {
   return frame?.type === 'ext:ui-picker' && frame.requestId === requestId;
 }
 
-export function launchFrame({ requestId, pick, note, action, screenshot }) {
-  return { type: 'ui-picker-launch', requestId, pick, note, action, screenshot };
+export function launchFrame({ requestId, pick, note, screenshot }) {
+  return { type: 'ui-picker-launch', requestId, pick, note, screenshot };
 }

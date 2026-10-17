@@ -2,7 +2,7 @@
 
 An [Agent Wrangler](https://github.com/topics/agent-wrangler-extension) extension. Point at a
 component in the enterprise web app, add a note and a screenshot, and start a wrangler session
-about it: **Fix** it, or **Make reusable**.
+about it.
 
 ## How it works
 
@@ -11,9 +11,9 @@ about it: **Fix** it, or **Make reusable**.
 2. It opens a launch window served by your wrangler (`/ext/ui-picker/launch.html`) and hands the
    pick to it with `postMessage`. The enterprise page never talks to the wrangler directly, so no
    CORS or origin settings change.
-3. In the launch window you write a note, choose an action and optionally paste a screenshot.
-   **Launch** starts a session in the enterprise repo (in a new worktree by default) using the
-   `ui-fix` or `ui-make-reusable` skill.
+3. In the launch window you write a note and optionally paste a screenshot.
+   **Launch** starts a session in the enterprise repo (in a new worktree by default) with your
+   note and the pick details as its prompt.
 
 ## Install
 
@@ -49,7 +49,7 @@ To attach a screenshot, copy one with ⌘⇧⌃4 and paste it into the launch wi
 - Nothing launches without you clicking **Launch**.
 - Everything captured from the page is treated as untrusted data. The server checks types and
   sizes, flattens every field to one line, and quotes the HTML in a code fence the HTML can't
-  close. The skills tell the agent never to follow instructions found in it.
+  close. The prompt tells the agent never to follow instructions found in it.
 
 ## Housekeeping
 

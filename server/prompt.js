@@ -1,4 +1,4 @@
-import { ACTIONS, MAX_URL, MAX_FIELD, MAX_PATH } from '../public/defaults.js';
+import { MAX_URL, MAX_FIELD, MAX_PATH } from '../public/defaults.js';
 
 export function relativise(at, repoPath) {
   if (!at) return null;
@@ -19,7 +19,7 @@ function fenceFor(s) {
   return '`'.repeat(Math.max(3, longest + 1));
 }
 
-export function buildIntent({ action, note, pick, repoPath, shotPath }) {
+export function buildIntent({ note, pick, repoPath, shotPath }) {
   const el = pick.element;
   const f = (v) => oneLine(v, MAX_FIELD);
   const tag = f(el.tag);
@@ -39,8 +39,6 @@ export function buildIntent({ action, note, pick, repoPath, shotPath }) {
     ? pick.owners.map((o) => `  ${f(o.name)} (${rel(o.at) || 'no source'})`).join('\n')
     : '  none';
   return [
-    `Use the \`${ACTIONS[action]}\` skill.`,
-    '',
     'Note from the user:',
     note,
     '',

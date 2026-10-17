@@ -45,8 +45,8 @@ test('isOurResult matches the broadcast for this request only', () => {
 });
 
 test('launchFrame shapes the control frame', () => {
-  const f = launchFrame({ requestId: 'r1', pick: { a: 1 }, note: 'n', action: 'fix', screenshot: null });
-  assert.deepEqual(f, { type: 'ui-picker-launch', requestId: 'r1', pick: { a: 1 }, note: 'n', action: 'fix', screenshot: null });
+  const f = launchFrame({ requestId: 'r1', pick: { a: 1 }, note: 'n', screenshot: null });
+  assert.deepEqual(f, { type: 'ui-picker-launch', requestId: 'r1', pick: { a: 1 }, note: 'n', screenshot: null });
 });
 
 test('isWellFormedPick accepts a good pick and rejects malformed shapes', () => {

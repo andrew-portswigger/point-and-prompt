@@ -4,15 +4,15 @@ import { validateLaunch, createLaunchHandler } from '../server/launch.js';
 
 const PNG = 'data:image/png;base64,' + Buffer.from('\x89PNG\r\n\x1a\nxx', 'binary').toString('base64');
 const pick = { url: 'http://localhost:3333/', element: { tag: 'div', id: '', classes: [], text: '' }, html: '<div></div>', jsxAt: null, owners: [] };
-const good = { type: 'ui-picker-launch', requestId: 'r1', action: 'fix', note: 'broken', pick, screenshot: PNG };
+const good = { type: 'ui-picker-launch', requestId: 'r1', note: 'broken', pick, screenshot: PNG };
 
 test('validateLaunch accepts a well-formed frame', () => {
   assert.doesNotThrow(() => validateLaunch(good));
+  assert.doesNotThrow(() => validateLaunch({ ...good, action: 'fix' }), 'a legacy action key is ignored');
   assert.doesNotThrow(() => validateLaunch({ ...good, screenshot: null }));
 });
 
 for (const [label, patch] of [
-  ['unknown action', { action: 'delete' }],
   ['empty note', { note: '  ' }],
   ['huge note', { note: 'x'.repeat(5000) }],
   ['bad requestId', { requestId: '../x' }],
@@ -98,7 +98,7 @@ test('handler honours settings', async () => {
 test('handler does not spawn when validation fails', async () => {
   const host = fakeHost();
   const { handler } = createLaunchHandler({ fs: fakeFs(), shotsDir: () => '/d', now: () => 1 });
-  await assert.rejects(handler({ ...good, action: 'nope' }, host));
+  await assert.rejects(handler({ ...good, note: '' }, host));
   assert.equal(host.calls.spawn.length, 0);
 });
 
