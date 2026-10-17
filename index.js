@@ -1,3 +1,5 @@
+import { createLaunchHandler } from './server/launch.js';
+
 export default {
   id: 'ui-picker',
   label: 'UI Picker',
@@ -13,6 +15,6 @@ export default {
     { key: 'useWorktree', type: 'toggle', label: 'Start in a new worktree', help: 'Off starts the session in the checkout itself. Unset counts as on.' },
     { key: 'taskId', type: 'text', label: 'Task id', help: 'Optional board task new sessions are filed under.' },
   ],
-  handlers: [],
+  handlers: [createLaunchHandler()],
   skills: [],
 };
