@@ -1,6 +1,6 @@
 import nodeFs from 'node:fs/promises';
 import path from 'node:path';
-import { ACTIONS, DEFAULT_REPO_PATH, MAX_HTML, MAX_NOTE, MAX_OWNERS, MAX_SHOT_BYTES } from '../public/defaults.js';
+import { ACTIONS, DEFAULT_REPO_PATH, MAX_CLASSES, MAX_HTML, MAX_NOTE, MAX_OWNERS, MAX_SHOT_BYTES } from '../public/defaults.js';
 import { expandHome, shotsDir as defaultShotsDir } from './paths.js';
 import { buildIntent } from './prompt.js';
 
@@ -23,7 +23,7 @@ export function validateLaunch(msg) {
   if (p.jsxAt != null && !isStr(p.jsxAt)) bad('malformed pick: jsxAt');
   const el = p.element;
   if (!isStr(el.tag) || !isStr(el.id) || !isStr(el.text)) bad('malformed pick: element');
-  if (!Array.isArray(el.classes) || el.classes.length > 3 || !el.classes.every(isStr)) bad('malformed pick: classes');
+  if (!Array.isArray(el.classes) || el.classes.length > MAX_CLASSES || !el.classes.every(isStr)) bad('malformed pick: classes');
   if (!Array.isArray(p.owners) || p.owners.length > MAX_OWNERS) bad('malformed pick: owners');
   for (const o of p.owners) {
     if (!o || typeof o !== 'object' || !isStr(o.name) || (o.at != null && !isStr(o.at))) bad('malformed pick: owner');

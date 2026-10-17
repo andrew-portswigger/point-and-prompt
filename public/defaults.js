@@ -10,3 +10,4 @@ export const MAX_OWNERS = 8;
 export const MAX_URL = 2048;
 export const MAX_FIELD = 256;
 export const MAX_PATH = 512;
+export const MAX_CLASSES = 3;
