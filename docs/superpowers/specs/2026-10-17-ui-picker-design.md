@@ -59,7 +59,7 @@ postMessage(payload, wranglerOrigin) ──►    check origin + type
 
 ## Part 1 — Bookmarklet
 
-Built from `public/bookmarklet.js` into a `javascript:` URL (minified, URL-encoded). The wrangler
+Built from `public/pick-core.js` + `public/bookmarklet-main.js` into a `javascript:` URL (URL-encoded, not minified; a few KB). The wrangler
 origin is baked in at build time from the page that serves the drag link (see Part 2), so the
 bookmarklet always targets the wrangler that issued it.
 
@@ -148,8 +148,8 @@ module with a `settings.panel` slot; not worth it for v1.)
 - `allowedOrigins` comes from the server, not the bookmarklet, so a settings change takes effect
   without reinstalling the bookmarklet.
 - Shows: page URL, element summary, `jsxAt`, owner chain; a note textarea; action radio
-  (**Fix** / **Make reusable**); a paste target (`paste` event, first `image/*` item, shown as a
-  thumbnail, removable); **Launch** and **Cancel**.
+  (**Fix** / **Make reusable**); a paste target (`paste` event, first `image/png` item, shown as a
+  thumbnail, removable; other image types get a "PNG only" hint); **Launch** and **Cancel**.
 - Launch is disabled until a pick has arrived and the note is non-empty.
 - On Launch: on the same socket, send
   `{ type: 'ui-picker-launch', requestId, pick, note, action, screenshot: <base64 PNG | null> }`
@@ -162,7 +162,7 @@ module with a `settings.panel` slot; not worth it for v1.)
 **Server handler** `ui-picker-launch`
 
 1. Validate: `action ∈ {fix, reusable}`, note is a non-empty string ≤ 4KB, pick has the expected
-   shape, screenshot (if any) is a PNG data URL ≤ 10MB decoded. Throw on anything else (the
+   shape, screenshot (if any) is a PNG data URL ≤ 10MB decoded whose bytes start with the PNG signature. Throw on anything else (the
    router turns it into `{type:'error'}`).
 2. Save the screenshot to `<data dir>/ui-picker/shots/<timestamp>-<requestId>.png`. The host API
    exposes no data dir, so resolve it as `process.env.AW_DATA_DIR` (`~` expanded) or else
@@ -207,7 +207,7 @@ the enterprise repo, with a check that a production build contains no `__source`
 | Pick from a non-allowed origin | Ignored; page says "Waiting for a pick from an allowed site" with the configured list. |
 | Extension disabled | `/ext/ui-picker/*` 404s; bookmarklet's popup shows the 404 — acceptable. |
 | Spawn fails / bad input | Handler throws → `{type:'error'}` → shown in the popup, form kept. |
-| No broadcast within 60s | Timeout message; session may still have launched — link to the board. |
+| No broadcast within 60s | Timeout message; session may still have launched — check the board. |
 
 ## Testing
 
