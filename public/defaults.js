@@ -7,6 +7,11 @@ export const DEFAULT_ALLOWED_ORIGINS = ['http://localhost:3333', 'http://localho
 // bookmarklets dragged before an update keep working.
 export const PROTOCOL = 1;
 export const SUPPORTED_PROTOCOLS = [1];
+// Fields a protocol's payload may carry or leave out, added without a protocol
+// bump. Old boards ignore them; a malformed one is dropped, not fatal (the
+// screenshot, there from the start, is the exception: a bad one rejects the
+// pick). Each has a golden payload carrying it under test/fixtures.
+export const OPTIONAL_FIELDS = { 1: ['screenshot', 'mode', 'contains'] };
 export const MAX_BUILD = 64;
 export const MAX_HTML = 4096;
 export const MAX_SHOT_BYTES = 10 * 1024 * 1024;
@@ -15,3 +20,4 @@ export const MAX_URL = 2048;
 export const MAX_FIELD = 256;
 export const MAX_PATH = 512;
 export const MAX_CLASSES = 3;
+export const MAX_CONTAINS = 10;

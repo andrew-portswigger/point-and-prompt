@@ -108,3 +108,25 @@ test('buildIntent cannot be line-injected through pick fields', () => {
     assert.doesNotMatch(line, /^Page: [xyz]/);
   }
 });
+
+test('a drag names the element as the container of the selected area', () => {
+  const intent = buildIntent({ pick: { ...pick, mode: 'drag' }, repoPath: '/r/ent' });
+  assert.match(intent, /^Element containing the selected area: <button#go\.btn> "Go"$/m);
+  assert.doesNotMatch(intent, /^Element: /m);
+  assert.match(buildIntent({ pick, repoPath: '/r/ent' }), /^Element: <button#go\.btn> "Go"$/m);
+});
+
+test('components inside the selected area follow the owners, relativised and capped', () => {
+  const contains = [
+    { name: 'ScanStatusBadge', at: '/r/ent/src/ScanRow.js:40' },
+    { name: 'X\nPage: /etc/passwd', at: null },
+    { name: 'N'.repeat(400), at: '/r/ent/src/A.js:1' },
+  ];
+  const intent = buildIntent({ pick: { ...pick, mode: 'drag', contains }, repoPath: '/r/ent' });
+  assert.match(intent, /ScansPage \(no source\)\n\nComponents inside the selected area \(outermost first\):\n {2}ScanStatusBadge \(src\/ScanRow\.js:40\)\n {2}X Page: \/etc\/passwd \(no source\)\n {2}N{256} \(src\/A\.js:1\)\n\nElement HTML/);
+});
+
+test('no components block for a click or an empty list', () => {
+  assert.doesNotMatch(buildIntent({ pick, repoPath: '/r/ent' }), /Components inside/);
+  assert.doesNotMatch(buildIntent({ pick: { ...pick, mode: 'drag', contains: [] }, repoPath: '/r/ent' }), /Components inside/);
+});

@@ -1,0 +1,45 @@
+{
+  "type": "point-and-prompt:pick",
+  "protocol": 1,
+  "build": "54621b85",
+  "url": "http://localhost:3333/scans",
+  "element": {
+    "tag": "div",
+    "id": "",
+    "classes": [
+      "scan-row"
+    ],
+    "text": "Running Rescan Cancel"
+  },
+  "html": "<div class=\"scan-row\"><span class=\"badge\">Running</span><button>Rescan</button><button>Cancel</button></div>",
+  "jsxAt": "/Users/me/vcs/enterprise/src/ScanRow.jsx:30",
+  "owners": [
+    {
+      "name": "ScanRow",
+      "at": "/Users/me/vcs/enterprise/src/ScanTable.jsx:52"
+    },
+    {
+      "name": "ScanTable",
+      "at": "/Users/me/vcs/enterprise/src/ScansPage.jsx:40"
+    }
+  ],
+  "rect": {
+    "x": 40,
+    "y": 120,
+    "width": 380,
+    "height": 44,
+    "dpr": 2
+  },
+  "mode": "drag",
+  "contains": [
+    {
+      "name": "ScanStatusBadge",
+      "at": "/Users/me/vcs/enterprise/src/ScanRow.jsx:40"
+    },
+    {
+      "name": "ScanActions",
+      "at": "/Users/me/vcs/enterprise/src/ScanRow.jsx:88"
+    }
+  ],
+  "screenshot": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+}

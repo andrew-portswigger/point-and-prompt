@@ -2,8 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { buildBookmarklet, buildId } from '../public/build-bookmarklet.js';
-import { PICK_MAX_HTML, PICK_MAX_OWNERS, PICK_MAX_CLASSES, PICK_MAX_SHOT_BYTES, PICK_PROTOCOL } from '../public/pick-core.js';
-import { MAX_HTML, MAX_OWNERS, MAX_CLASSES, MAX_SHOT_BYTES, PROTOCOL, SUPPORTED_PROTOCOLS } from '../public/defaults.js';
+import { PICK_MAX_HTML, PICK_MAX_OWNERS, PICK_MAX_CLASSES, PICK_MAX_CONTAINS, PICK_MAX_SHOT_BYTES, PICK_PROTOCOL } from '../public/pick-core.js';
+import { MAX_HTML, MAX_OWNERS, MAX_CLASSES, MAX_CONTAINS, MAX_SHOT_BYTES, OPTIONAL_FIELDS, PROTOCOL, SUPPORTED_PROTOCOLS } from '../public/defaults.js';
 
 const read = (f) => fs.readFileSync(new URL(`../public/${f}`, import.meta.url), 'utf8');
 
@@ -21,6 +21,7 @@ test('pick-core limits match defaults', () => {
   assert.equal(PICK_MAX_HTML, MAX_HTML);
   assert.equal(PICK_MAX_OWNERS, MAX_OWNERS);
   assert.equal(PICK_MAX_CLASSES, MAX_CLASSES);
+  assert.equal(PICK_MAX_CONTAINS, MAX_CONTAINS);
   assert.equal(PICK_MAX_SHOT_BYTES, MAX_SHOT_BYTES);
   assert.equal(PICK_PROTOCOL, PROTOCOL);
   assert.ok(SUPPORTED_PROTOCOLS.includes(PROTOCOL), 'the board accepts what the current bookmarklet speaks');
@@ -58,14 +59,22 @@ const PNG = 'data:image/png;base64,iVBORw0KGgo=';
 const flush = () => new Promise((r) => setImmediate(r));
 
 function fakeEl(tag, rect, parentElement = null) {
-  return {
+  const e = {
     tagName: tag, id: '', className: 'x', textContent: tag, outerHTML: `<${tag}></${tag}>`, parentElement,
     getBoundingClientRect: () => ({ ...rect, left: rect.x, top: rect.y }),
   };
+  if (parentElement) (parentElement.children ||= []).push(e);
+  return e;
 }
 
+// React 17/18 dev fibers: a component fiber, and a host fiber rendered by `owner`.
+const comp = (name, fileName, lineNumber, owner = null) => ({
+  type: Object.defineProperty(function () {}, 'name', { value: name }), _debugSource: { fileName, lineNumber }, _debugOwner: owner,
+});
+const hostFiber = (owner) => ({ type: 'div', _debugOwner: owner });
+
 // capture: 'reject' (user cancelled), 'resolve' (sharing), 'pending' (prompt still open).
-async function setup({ capture = 'reject', png = PNG, grab = 'ok', surface = 'browser', frame = { width: 2000, height: 1600 } } = {}) {
+async function setup({ capture = 'reject', png = PNG, grab = 'ok', surface = 'browser', frame = { width: 2000, height: 1600 }, react = false } = {}) {
   const listeners = [];
   const timers = [];
   const opened = [];
@@ -119,6 +128,20 @@ async function setup({ capture = 'reject', png = PNG, grab = 'ok', surface = 'br
   const other = fakeEl('SPAN', { x: 200, y: 100, width: 50, height: 20 }, parent);
   const body = fakeEl('BODY', { x: 0, y: 0, width: 1000, height: 800 });
   parent.parentElement = body;
+  body.children = [parent];
+  if (react) {
+    // The section is rendered by ScanRow; the button by ScanActions and the span
+    // by ScanStatusBadge, both used inside ScanRow. A hidden em has no box.
+    const page = comp('ScansPage', '/r/ent/src/App.js', 5);
+    const row = comp('ScanRow', '/r/ent/src/ScanTable.js', 52, page);
+    const actions = comp('ScanActions', '/r/ent/src/ScanRow.js', 88, row);
+    const badge = comp('ScanStatusBadge', '/r/ent/src/ScanRow.js', 40, row);
+    const hidden = comp('Hidden', '/r/ent/src/ScanRow.js', 99, row);
+    parent['__reactFiber$x'] = hostFiber(row);
+    target['__reactFiber$x'] = hostFiber(actions);
+    other['__reactFiber$x'] = hostFiber(badge);
+    fakeEl('EM', { x: 0, y: 0, width: 0, height: 0 }, parent)['__reactFiber$x'] = hostFiber(hidden);
+  }
   let underPoint = other;
   const document = {
     createElement: mk,
@@ -232,7 +255,9 @@ test('a board advertising [1, 2] gets the v1 shape', async () => {
   const keys = (o) => Object.keys(o).sort();
   const sent = t.posted[0][0];
   assert.equal(sent.protocol, 1);
-  assert.deepEqual(keys(sent), keys(golden));
+  // The golden keys, give or take the declared optional fields.
+  const optional = OPTIONAL_FIELDS[1];
+  assert.deepEqual(keys(sent).filter((k) => !optional.includes(k)), keys(golden).filter((k) => !optional.includes(k)));
   assert.deepEqual(keys(sent.element), keys(golden.element));
   assert.deepEqual(keys(sent.rect), keys(golden.rect));
 });
@@ -542,4 +567,55 @@ test('an off-screen target picks without a screenshot', async () => {
   assert.equal(t.posted.length, 1);
   assert.equal('screenshot' in t.posted[0][0], false);
   assert.equal(t.banners.some((b) => /screenshot failed/.test(b)), false);
+});
+
+const dragAcross = (t) => {
+  t.fire('pointerdown', t.ev({ clientX: 90, clientY: 90 }));
+  t.fire('pointermove', t.ev({ clientX: 260, clientY: 125 }));
+  t.fire('pointerup', t.ev({ clientX: 260, clientY: 125 }));
+  t.ready();
+};
+
+test('a drag over React components sends the components inside the area, outermost first', async () => {
+  const t = await setup({ capture: 'resolve', react: true });
+  dragAcross(t);
+  await flush();
+  const pick = t.posted[0][0];
+  assert.equal(pick.element.tag, 'section');
+  assert.equal(pick.mode, 'drag');
+  assert.deepEqual(pick.owners.map((o) => o.name), ['ScanRow', 'ScansPage']);
+  assert.deepEqual(pick.contains, [
+    { name: 'ScanActions', at: '/r/ent/src/ScanRow.js:88' },
+    { name: 'ScanStatusBadge', at: '/r/ent/src/ScanRow.js:40' },
+  ]);
+  const golden = JSON.parse(fs.readFileSync(new URL('./fixtures/pick-v1-contains.json', import.meta.url), 'utf8'));
+  assert.deepEqual(Object.keys(pick).sort(), Object.keys(golden).sort());
+});
+
+test('a click sends neither mode nor contains', async () => {
+  const t = await setup({ capture: 'resolve', react: true });
+  t.click();
+  t.ready();
+  await flush();
+  const pick = t.posted[0][0];
+  assert.equal('mode' in pick, false);
+  assert.equal('contains' in pick, false);
+});
+
+test('a drag with no components inside sends mode but no contains', async () => {
+  const t = await setup({ capture: 'resolve' });
+  dragAcross(t);
+  await flush();
+  assert.equal(t.posted[0][0].mode, 'drag');
+  assert.equal('contains' in t.posted[0][0], false);
+});
+
+test('a page that throws while being scanned still gets its pick, without contains', async () => {
+  const t = await setup({ capture: 'resolve', react: true });
+  Object.defineProperty(t.parent, 'children', { get() { throw new Error('boom'); } });
+  dragAcross(t);
+  await flush();
+  assert.equal(t.posted.length, 1);
+  assert.equal(t.posted[0][0].element.tag, 'section');
+  assert.equal('contains' in t.posted[0][0], false);
 });

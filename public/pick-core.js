@@ -6,13 +6,28 @@ export const PICK_MAX_HTML = 4096;
 export const PICK_MAX_OWNERS = 8;
 export const PICK_MAX_CLASSES = 3;
 export const PICK_MAX_SHOT_BYTES = 10 * 1024 * 1024;
+export const PICK_MAX_CONTAINS = 10;
+// A drag lists the components whose elements lie mostly inside it: at least this
+// share of an element's box must be within the dragged area.
+export const PICK_CONTAINS_OVERLAP = 0.6;
+// Elements under the containing element looked at, to stay fast on big pages.
+export const PICK_CONTAINS_SCAN = 3000;
+// How far up _debugOwner to walk when comparing components (deeper than owners).
+const OWNER_DEPTH = 100;
 
 // Assumes React 17/18 dev builds: `__reactFiber$` keys and `_debugSource` from the
-// dev JSX transform (React 19 has no `_debugSource`).
+// dev JSX transform (React 19 has no `_debugSource`). A DOM element's own fiber,
+// not an ancestor's.
+export function ownFiber(el) {
+  const key = Object.keys(el).find((k) => k.startsWith('__reactFiber$'));
+  return key ? el[key] : null;
+}
+
+// The fiber of el or its nearest ancestor that has one.
 export function fiberOf(el) {
   for (let e = el; e; e = e.parentElement) {
-    const key = Object.keys(e).find((k) => k.startsWith('__reactFiber$'));
-    if (key) return e[key];
+    const f = ownFiber(e);
+    if (f) return f;
   }
   return null;
 }
@@ -55,10 +70,10 @@ export function chooseProtocol(ours, theirs) {
 
 // The facts about a pick, captured at pointerup in no particular wire format.
 // `build` identifies the bookmarklet's own code (see build-bookmarklet.js); the
-// bookmarklet adds `screenshot` once the grab settles.
-export function capturePick(el, { url, rect, dpr, build }) {
+// bookmarklet adds `contains` for a drag, and `screenshot` once the grab settles.
+export function capturePick(el, { url, rect, dpr, build, drag = false }) {
   const fiber = fiberOf(el);
-  return {
+  const raw = {
     build,
     url,
     element: describeElement(el),
@@ -67,6 +82,8 @@ export function capturePick(el, { url, rect, dpr, build }) {
     owners: ownerChain(fiber, PICK_MAX_OWNERS),
     rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height, dpr },
   };
+  if (drag) raw.mode = 'drag';
+  return raw;
 }
 
 // One payload builder per wire protocol this bookmarklet can send. The payload
@@ -85,6 +102,11 @@ export const PAYLOAD_BUILDERS = {
       owners: raw.owners,
       rect: raw.rect,
     };
+    // Optional fields (OPTIONAL_FIELDS in defaults.js): present only when they say something.
+    if (raw.mode === 'drag') {
+      p.mode = 'drag';
+      if (raw.contains && raw.contains.length) p.contains = raw.contains;
+    }
     if (raw.screenshot) p.screenshot = raw.screenshot;
     return p;
   },
@@ -131,4 +153,76 @@ const PNG_PREFIX = 'data:image/png;base64,';
 export function shotFits(url) {
   return typeof url === 'string' && url.startsWith(PNG_PREFIX)
     && (url.length - PNG_PREFIX.length) * 0.75 <= PICK_MAX_SHOT_BYTES;
+}
+
+// Whether at least PICK_CONTAINS_OVERLAP of box's area lies inside rect. An
+// unrendered (zero-area) box never does.
+export function mostlyInside(box, rect, threshold = PICK_CONTAINS_OVERLAP) {
+  const area = box.width * box.height;
+  if (!(area > 0)) return false;
+  const w = Math.min(box.x + box.width, rect.x + rect.width) - Math.max(box.x, rect.x);
+  const h = Math.min(box.y + box.height, rect.y + rect.height) - Math.max(box.y, rect.y);
+  return w > 0 && h > 0 && (w * h) / area >= threshold;
+}
+
+// root's descendant elements in document order, at most max of them.
+export function descendants(root, max) {
+  const out = [];
+  const stack = [...(root.children || [])].reverse();
+  while (stack.length && out.length < max) {
+    const e = stack.pop();
+    out.push(e);
+    const kids = e.children || [];
+    for (let i = kids.length - 1; i >= 0; i -= 1) stack.push(kids[i]);
+  }
+  return out;
+}
+
+// Components are compared by name and source rather than by fiber: a DOM node
+// may hold either of a fiber's two copies (current or alternate).
+const componentKey = (name, at) => `${name}\u0000${at}`;
+
+function ownerKeys(fiber) {
+  const keys = [];
+  for (let o = fiber && fiber._debugOwner, n = 0; o && n < OWNER_DEPTH; o = o._debugOwner, n += 1) {
+    const name = componentName(o);
+    if (name) keys.push(componentKey(name, debugAt(o)));
+  }
+  return keys;
+}
+
+// The component that rendered a host fiber (its nearest owner), where that
+// component is used, and the keys of the components above it; null for none.
+export function componentEntry(hostFiber) {
+  let o = hostFiber && hostFiber._debugOwner;
+  for (let n = 0; o && !componentName(o) && n < OWNER_DEPTH; n += 1) o = o._debugOwner;
+  if (!o || !componentName(o)) return null;
+  return { name: componentName(o), at: debugAt(o), owners: ownerKeys(o) };
+}
+
+// Plain-data entries ({ name, at, owners: keys }) in document order to the
+// outermost distinct components, first-seen order, at most max. `exclude` are
+// the keys already described as the containing element's owners; they go first,
+// so their children can stand as the outermost.
+export function outermostComponents(entries, exclude, max) {
+  const skip = new Set(exclude);
+  const seen = new Map();
+  for (const e of entries) {
+    const key = componentKey(e.name, e.at);
+    if (!skip.has(key) && !seen.has(key)) seen.set(key, e);
+  }
+  const out = [];
+  for (const [key, e] of seen) {
+    if (out.length >= max) break;
+    // A recursive component used at the same place is not its own outer component.
+    if (!e.owners.some((k) => k !== key && seen.has(k))) out.push({ name: e.name, at: e.at });
+  }
+  return out;
+}
+
+// The outermost components rendering the given host fibers (document order),
+// leaving out the containing element's own owner chain.
+export function componentsInside(hostFibers, containerFiber, max) {
+  const entries = hostFibers.map(componentEntry).filter(Boolean);
+  return outermostComponents(entries, ownerKeys(containerFiber), max);
 }

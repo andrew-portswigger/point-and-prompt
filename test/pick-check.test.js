@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import crypto from 'node:crypto';
 import { allowedOriginsFrom, isAcceptedPick, isWellFormedPick, normalisePick, readPick } from '../public/pick-check.js';
-import { DEFAULT_ALLOWED_ORIGINS, MAX_CLASSES, MAX_HTML, MAX_OWNERS, MAX_SHOT_BYTES, SUPPORTED_PROTOCOLS } from '../public/defaults.js';
+import { DEFAULT_ALLOWED_ORIGINS, MAX_CLASSES, MAX_CONTAINS, MAX_HTML, MAX_OWNERS, MAX_SHOT_BYTES, OPTIONAL_FIELDS, SUPPORTED_PROTOCOLS } from '../public/defaults.js';
 import { buildIntent } from '../public/prompt.js';
 
 const fixture = (protocol) => JSON.parse(fs.readFileSync(new URL(`./fixtures/pick-v${protocol}.json`, import.meta.url), 'utf8'));
@@ -143,9 +143,64 @@ test('readPick tells an unsupported protocol from an allowed opener apart from n
   assert.equal(readPick({ ...ok, data: { type: 'other', protocol: 2 } }, allowed, opener), null);
 });
 
-test('the golden v1 payload is unchanged', () => {
-  const bytes = fs.readFileSync(new URL('./fixtures/pick-v1.json', import.meta.url));
-  assert.equal(crypto.createHash('sha256').update(bytes).digest('hex'),
-    '8a630d81b5cf7764527d18b653b33b84726a8cac32b8aa632d401bfa93db0ede',
-    'pick-v1.json is a compatibility contract — add pick-v2.json for a new protocol instead of editing this one');
+// Every golden payload and its pinned content hash. Each is a compatibility
+// contract: add a new fixture rather than editing one.
+const GOLDEN = {
+  'pick-v1.json': '8a630d81b5cf7764527d18b653b33b84726a8cac32b8aa632d401bfa93db0ede',
+  'pick-v1-contains.json': 'e3413e8fd5ba1d19b2641ff5827f9774bd66f99fc4cc9c69f62fa75345af6120',
+};
+
+for (const [file, hash] of Object.entries(GOLDEN)) {
+  test(`the golden ${file} payload is unchanged`, () => {
+    const bytes = fs.readFileSync(new URL(`./fixtures/${file}`, import.meta.url));
+    assert.equal(crypto.createHash('sha256').update(bytes).digest('hex'), hash,
+      `${file} is a compatibility contract — add a new fixture instead of editing this one`);
+  });
+}
+
+test('every optional field the board knows has a golden payload carrying it', () => {
+  for (const [protocol, fields] of Object.entries(OPTIONAL_FIELDS)) {
+    const carried = Object.keys(GOLDEN).filter((f) => f.startsWith(`pick-v${protocol}`))
+      .flatMap((f) => Object.keys(JSON.parse(fs.readFileSync(new URL(`./fixtures/${f}`, import.meta.url), 'utf8'))));
+    for (const field of fields) assert.ok(carried.includes(field), `v${protocol} ${field}`);
+  }
+});
+
+test('the golden drag payload is accepted with its mode and contains', () => {
+  const data = JSON.parse(fs.readFileSync(new URL('./fixtures/pick-v1-contains.json', import.meta.url), 'utf8'));
+  const { pick } = readPick({ origin: 'http://localhost:3333', source: opener, data }, ['http://localhost:3333'], opener);
+  assert.equal(pick.mode, 'drag');
+  assert.deepEqual(pick.contains, data.contains);
+  const intent = buildIntent({ pick, repoPath: '~/vcs/enterprise' });
+  assert.match(intent, /Components inside the selected area \(outermost first\):\n {2}ScanStatusBadge \(src\/ScanRow\.jsx:40\)\n {2}ScanActions \(src\/ScanRow\.jsx:88\)/);
+  assert.match(intent, /^Element containing the selected area: <div\.scan-row>/m);
+});
+
+test('the golden click payload normalises without mode or contains', () => {
+  const pick = normalisePick[1](fixture(1));
+  assert.equal('mode' in pick, false);
+  assert.equal('contains' in pick, false);
+});
+
+test('normalisePick[1] keeps a well-formed contains', () => {
+  const contains = [{ name: 'A', at: 'a.jsx:1' }, { name: 'B', at: null }];
+  assert.deepEqual(normalisePick[1]({ ...goodPick, mode: 'drag', contains }).contains, contains);
+  const full = Array(MAX_CONTAINS).fill({ name: 'A', at: null });
+  assert.equal(normalisePick[1]({ ...goodPick, contains: full }).contains.length, MAX_CONTAINS);
+  // Only the known keys are kept.
+  assert.deepEqual(normalisePick[1]({ ...goodPick, contains: [{ name: 'A', at: null, x: 1 }] }).contains, [{ name: 'A', at: null }]);
+});
+
+test('a malformed contains or mode is dropped, and the pick is still accepted', () => {
+  const allowed = ['http://localhost:3333'];
+  for (const contains of ['x', null, {}, [{ name: 1, at: null }], [{ name: 'A' }], [null], Array(MAX_CONTAINS + 1).fill({ name: 'A', at: null })]) {
+    const read = readPick({ ...ok, data: { ...goodPick, contains } }, allowed, opener);
+    assert.ok(read?.pick, JSON.stringify(contains));
+    assert.equal('contains' in read.pick, false);
+  }
+  for (const mode of ['click', 1, null, 'DRAG']) {
+    const read = readPick({ ...ok, data: { ...goodPick, mode } }, allowed, opener);
+    assert.ok(read?.pick);
+    assert.equal('mode' in read.pick, false);
+  }
 });

@@ -146,6 +146,20 @@ function elementAround(rect) {
   return containingElement(start, rect, (el) => el.getBoundingClientRect(), document.body);
 }
 
+// The components rendered inside a dragged area, outermost first, or [] when
+// there are none or the page can't be read: the pick must go through regardless.
+// Runs after stopPicking, before the grab; our own overlays are skipped anyway.
+function componentsIn(container, rect) {
+  try {
+    const hosts = descendants(container, PICK_CONTAINS_SCAN)
+      .filter((e) => !overlays.has(e) && mostlyInside(e.getBoundingClientRect(), rect))
+      .map(ownFiber);
+    return componentsInside(hosts, fiberOf(container), PICK_MAX_CONTAINS);
+  } catch {
+    return [];
+  }
+}
+
 const nextFrames = () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
 
 // One frame of the shared tab cropped to rect (CSS px), as a PNG data URL, or
@@ -193,7 +207,8 @@ function up(e) {
   // swallowers on the next tick (after it); a disabled control gets no click.
   setTimeout(release, 0);
   // Read the page now; the payload is built once the board has chosen a protocol.
-  const raw = capturePick(el, { url: location.href, rect, dpr: devicePixelRatio, build: BUILD });
+  const raw = capturePick(el, { url: location.href, rect, dpr: devicePixelRatio, build: BUILD, drag: dragging });
+  if (dragging) raw.contains = componentsIn(el, rect);
   // Open the popup before any await, while the press still counts as activation.
   // A fresh window name per pick: a reused name would keep the first tab as opener.
   const name = 'point-and-prompt-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);

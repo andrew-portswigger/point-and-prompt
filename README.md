@@ -19,7 +19,8 @@ Requires an Agent Wrangler with host API 1.36.0 or later.
 2. It highlights the element under the mouse. Click an element, or drag a rectangle around an
    area. A click picks that element; a drag picks the smallest element that contains the whole
    area. Either way it reads the React fiber for the element's JSX file:line and the chain of
-   components that rendered it.
+   components that rendered it. A drag also lists the components rendered inside the area
+   (outermost first, up to 10): those with an element at least 60% inside it.
 3. If you shared the tab, it grabs one frame, crops it to the element (with a small margin) or to
    the dragged area, and stops sharing straight away.
 4. It opens your wrangler's board in a pop-up (`/?point-and-prompt=1`) and hands the pick and the
@@ -87,6 +88,11 @@ bookmarklet build it hands out now.
 - If the two share no protocol, you're told straight away (on the page or on the board) to
   re-drag the bookmarklet, rather than waiting for a timeout. A pick the board can't read gets the
   same advice.
+- A protocol can gain optional fields without a new protocol number: the pick still reads
+  without them, so old bookmarklets that don't send them and old boards that ignore them both
+  keep working. Protocol 1's are `screenshot`, `mode` (`"drag"` for a drag; absent for a click)
+  and `contains` (the components inside a dragged area). A malformed optional field is dropped
+  and the pick goes through; only `screenshot`, there from the start, rejects the pick instead.
 - Bookmarklets dragged before protocol versioning existed send `version` instead of `protocol`.
   The board shows them the mismatch card; re-drag once and you're on the versioned scheme.
 
@@ -108,8 +114,15 @@ npm test
 ```
 
 **The fixtures are compatibility contracts: never edit them.** `test/fixtures/pick-v<N>.json` holds
-a real payload for each protocol the board accepts, and a test pins `pick-v1.json`'s content hash.
-For a new protocol, add `pick-v<N+1>.json` instead. Supporting one means adding it to
+a real payload for each protocol the board accepts, and a test pins every fixture's content hash.
+For a new protocol, add `pick-v<N+1>.json` instead.
+
+Adding a field that a pick can do without (one the board can read the pick without, and one old
+boards can safely ignore) needs no new protocol. List it in `OPTIONAL_FIELDS` in
+`public/defaults.js`, have the normaliser keep it when well formed and drop it otherwise, and add a
+fixture carrying it (for example `pick-v1-contains.json`) with its hash pinned in
+`test/pick-check.test.js`. The bookmarklet's output must be the protocol's fixture keys plus
+some of its optional fields; a field the board can't do without needs a new protocol. Supporting one means adding it to
 `SUPPORTED_PROTOCOLS` in `public/defaults.js`, a normaliser in `public/pick-check.js`, a payload
 builder in `public/pick-core.js` and its fixture. Keep the old ones so that bookmarklets people
 already have keep working.
