@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import crypto from 'node:crypto';
 import { allowedOriginsFrom, isAcceptedPick, isWellFormedPick, normalisePick, readPick } from '../public/pick-check.js';
 import { DEFAULT_ALLOWED_ORIGINS, MAX_CLASSES, MAX_HTML, MAX_OWNERS, MAX_SHOT_BYTES, SUPPORTED_PROTOCOLS } from '../public/defaults.js';
 import { buildIntent } from '../public/prompt.js';
@@ -136,6 +137,15 @@ test('readPick tells an unsupported protocol from an allowed opener apart from n
   assert.deepEqual(readPick({ ...ok, data: { type: 'ui-picker:pick', version: 1 } }, allowed, opener), { unsupported: undefined });
   assert.equal(readPick({ ...ok, origin: 'http://evil', data: { ...goodPick, protocol: 2 } }, allowed, opener), null);
   assert.equal(readPick({ ...ok, source: {}, data: { ...goodPick, protocol: 2 } }, allowed, opener), null);
-  assert.equal(readPick({ ...ok, data: { ...goodPick, url: 5 } }, allowed, opener), null, 'malformed but supported: ignored');
+  assert.deepEqual(readPick({ ...ok, data: { ...goodPick, url: 5 } }, allowed, opener), { malformed: true });
+  assert.deepEqual(readPick({ ...ok, data: { type: 'ui-picker:pick', protocol: 1 } }, allowed, opener), { malformed: true });
+  assert.equal(readPick({ ...ok, origin: 'http://evil', data: { ...goodPick, url: 5 } }, allowed, opener), null);
   assert.equal(readPick({ ...ok, data: { type: 'other', protocol: 2 } }, allowed, opener), null);
+});
+
+test('the golden v1 payload is unchanged', () => {
+  const bytes = fs.readFileSync(new URL('./fixtures/pick-v1.json', import.meta.url));
+  assert.equal(crypto.createHash('sha256').update(bytes).digest('hex'),
+    '831e1b2b23f67b9b507468e8426d6056fc879193aac028487a00da5d458d9e3d',
+    'pick-v1.json is a compatibility contract — add pick-v2.json for a new protocol instead of editing this one');
 });

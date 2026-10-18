@@ -126,11 +126,11 @@ test('a blank repoPath falls back to the default folder', async () => {
   assert.equal(t.calls.openDispatch[0].cwd, '~/vcs/enterprise');
 });
 
-test('ignores picks from another source, a disallowed origin or of the wrong shape', async () => {
+test('ignores picks from another source or a disallowed origin, and foreign messages', async () => {
   const t = setup();
   t.send(pick, { source: { other: true } });
   t.send(pick, { origin: 'http://evil' });
-  t.send({ ...pick, screenshot: 'data:image/jpeg;base64,AAAA' });
+  t.send({ ...pick, screenshot: 'data:image/jpeg;base64,AAAA' }, { origin: 'http://evil' });
   t.send({ source: 'react-devtools-content-script' });
   await flush();
   assert.equal(t.calls.openDispatch.length, 0);
@@ -161,6 +161,23 @@ test('a pick without a protocol is a mismatch too', async () => {
   await Promise.all(t.launches);
   assert.equal(t.calls.openDispatch.length, 0);
   assert.equal(t.calls.notify[0].body, MISMATCH);
+  assert.equal(t.win.closed, 1);
+});
+
+const MALFORMED = "UI Picker couldn't read that pick. Re-drag the bookmarklet from Settings → Extensions → UI Picker.";
+
+test('a malformed pick from the opener says so, opens no dialog, and closes once the card is dismissed', async () => {
+  let dismiss;
+  const t = setup({ notify: () => new Promise((r) => { dismiss = r; }) });
+  t.send({ ...pick, screenshot: 'data:image/jpeg;base64,AAAA' });
+  await flush();
+  assert.equal(t.calls.openDispatch.length, 0);
+  assert.equal(t.calls.notify.length, 1);
+  assert.equal(t.calls.notify[0].body, MALFORMED);
+  assert.equal(t.listeners.size, 0, 'one answer per popup');
+  assert.equal(t.win.closed, 0, 'open while the card is up');
+  dismiss(null);
+  await Promise.all(t.launches);
   assert.equal(t.win.closed, 1);
 });
 

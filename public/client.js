@@ -17,6 +17,7 @@ export function pngBlob(dataUrl) {
   return new Blob([bytes], { type: 'image/png' });
 }
 
+const MALFORMED = "UI Picker couldn't read that pick. Re-drag the bookmarklet from Settings → Extensions → UI Picker.";
 const MISMATCH = "This UI Picker bookmarklet doesn't match this wrangler. Re-drag it from Settings → Extensions → UI Picker.";
 
 // How long ready waits for the current build id before going without it.
@@ -26,6 +27,7 @@ const BUILD_WAIT_MS = 2000;
 // sources the settings panel builds it from, or null if it can't be had
 // within waitMs.
 async function currentBuildId(fetchText, waitMs) {
+  // Past the cap the fetch keeps running, harmlessly: its result is ignored.
   let timer;
   const giveUp = new Promise((resolve) => { timer = setTimeout(resolve, waitMs, null); });
   const id = Promise.all([fetchText(PICK_CORE_URL), fetchText(MAIN_URL)]).then(([core, main]) => buildId(core, main), () => null);
@@ -72,10 +74,10 @@ export function startPicker({ api, win, loc, fetchText = defaultFetchText, build
     win.close();
   }
 
-  // A bookmarklet speaking a protocol this board doesn't: say so, then close
-  // like any other end, once the card is dismissed.
-  async function mismatch() {
-    await api.ui.notify({ id: 'mismatch', title: 'UI Picker', body: MISMATCH });
+  // A pick this board can't use (a protocol it doesn't speak, or a malformed
+  // payload): say so, then close like any other end, once the card is dismissed.
+  async function refuse(id, body) {
+    await api.ui.notify({ id, title: 'UI Picker', body });
     win.close();
   }
 
@@ -83,11 +85,9 @@ export function startPicker({ api, win, loc, fetchText = defaultFetchText, build
     const read = readPick(e, allowed, opener);
     if (!read) return;
     win.removeEventListener('message', onMessage);
-    if (!read.pick) {
-      onLaunch(mismatch());
-      return;
-    }
-    onLaunch(launch(read.pick));
+    if (read.pick) onLaunch(launch(read.pick));
+    else if (read.malformed) onLaunch(refuse('malformed', MALFORMED));
+    else onLaunch(refuse('mismatch', MISMATCH));
   };
   win.addEventListener('message', onMessage);
   // The opener is the page that picked; it waits for this before sending the

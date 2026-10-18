@@ -79,7 +79,10 @@ bookmarklet build it hands out now.
   still accepts their protocol. If the bookmarklet's build differs from the board's, the pick goes
   through as usual and a banner on the DAST page suggests re-dragging it.
 - If the two share no protocol, you're told straight away (on the page or on the board) to
-  re-drag the bookmarklet, rather than waiting for a timeout.
+  re-drag the bookmarklet, rather than waiting for a timeout. A pick the board can't read gets the
+  same advice.
+- Bookmarklets dragged before protocol versioning existed send `version` instead of `protocol`.
+  The board shows them the mismatch card; re-drag once and you're on the versioned scheme.
 
 ## Security model
 
@@ -98,9 +101,12 @@ bookmarklet build it hands out now.
 npm test
 ```
 
-`test/fixtures/pick-v<N>.json` holds a real payload for each protocol the board accepts. Supporting
-a new protocol means adding it to `SUPPORTED_PROTOCOLS` in `public/defaults.js`, a normaliser in
-`public/pick-check.js` and its fixture; keep the old ones so existing bookmarklets keep working.
+**The fixtures are compatibility contracts: never edit them.** `test/fixtures/pick-v<N>.json` holds
+a real payload for each protocol the board accepts, and a test pins `pick-v1.json`'s content hash.
+For a new protocol, add `pick-v<N+1>.json` instead. Supporting one means adding it to
+`SUPPORTED_PROTOCOLS` in `public/defaults.js`, a normaliser in `public/pick-check.js`, a payload
+builder in `public/pick-core.js` and its fixture. Keep the old ones so that bookmarklets people
+already have keep working.
 
 No runtime dependencies. To try it on an isolated wrangler, copy (don't symlink — discovery skips
 symlinks) this directory to `<AW_DATA_DIR>/extensions/ui-picker/` and restart that instance.

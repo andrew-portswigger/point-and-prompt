@@ -192,7 +192,8 @@ function up(e) {
   // The click follows pointerup in the same burst of events, so drop the
   // swallowers on the next tick (after it); a disabled control gets no click.
   setTimeout(release, 0);
-  const payload = buildPayload(el, { url: location.href, rect, dpr: devicePixelRatio, build: BUILD });
+  // Read the page now; the payload is built once the board has chosen a protocol.
+  const raw = capturePick(el, { url: location.href, rect, dpr: devicePixelRatio, build: BUILD });
   // Open the popup before any await, while the press still counts as activation.
   // A fresh window name per pick: a reused name would keep the first tab as opener.
   const name = 'ui-picker-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
@@ -205,18 +206,19 @@ function up(e) {
   let ready = false;
   let shotDone = !stream;
   let sent = false;
+  let protocol = null; // agreed with the board in its ready
   let boardBuild = null; // the build the board hands out now, if it said
   const send = () => {
     if (sent || !ready || !shotDone) return;
     sent = true;
-    popup.postMessage(payload, WRANGLER);
+    popup.postMessage(buildPayload(raw, protocol), WRANGLER);
     // After the grab, so the banner is never in the screenshot.
     if (boardBuild && boardBuild !== BUILD) banner(STALE, 8000);
   };
   if (stream) {
     grab(rect).then((png) => {
       if (shotDone || sent) return;
-      if (png) payload.screenshot = png;
+      if (png) raw.screenshot = png;
       shotDone = true;
       send();
     });
@@ -226,7 +228,7 @@ function up(e) {
     ready = true;
     removeEventListener('message', onReady);
     const theirs = Array.isArray(m.data.protocols) ? m.data.protocols : LEGACY_PROTOCOLS;
-    const protocol = chooseProtocol(PICK_PROTOCOLS, theirs);
+    protocol = chooseProtocol(PICK_PROTOCOLS, theirs);
     if (protocol === null) {
       // Nothing the board would accept: send nothing and close the popup we opened.
       sent = true;
@@ -236,7 +238,6 @@ function up(e) {
       banner(MISMATCH, 10000);
       return;
     }
-    payload.protocol = protocol;
     if (typeof m.data.build === 'string') boardBuild = m.data.build;
     send();
   };

@@ -222,6 +222,21 @@ test('a board advertising [1] gets the pick as protocol 1', async () => {
   assert.equal(t.posted[0][0].protocol, 1);
 });
 
+test('a board advertising [1, 2] gets the v1 shape', async () => {
+  const t = await setup({ capture: 'resolve' });
+  t.click();
+  t.ready([1, 2]);
+  await flush();
+  const golden = JSON.parse(fs.readFileSync(new URL('./fixtures/pick-v1.json', import.meta.url), 'utf8'));
+  // The fake page has no React fiber, so compare keys, not value types.
+  const keys = (o) => Object.keys(o).sort();
+  const sent = t.posted[0][0];
+  assert.equal(sent.protocol, 1);
+  assert.deepEqual(keys(sent), keys(golden));
+  assert.deepEqual(keys(sent.element), keys(golden.element));
+  assert.deepEqual(keys(sent.rect), keys(golden.rect));
+});
+
 test('a ready without protocols is treated as [1]', async () => {
   const t = await setup();
   t.click();

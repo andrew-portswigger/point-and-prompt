@@ -1,8 +1,7 @@
 // Inlined into the bookmarklet by build-bookmarklet.js: no imports, no
 // top-level DOM access, exports only at line start (they are stripped).
-// Mirrors defaults.js PROTOCOL; PICK_PROTOCOLS is every protocol this bookmarklet can send.
+// Mirrors defaults.js PROTOCOL: the newest protocol this bookmarklet speaks.
 export const PICK_PROTOCOL = 1;
-export const PICK_PROTOCOLS = [PICK_PROTOCOL];
 export const PICK_MAX_HTML = 4096;
 export const PICK_MAX_OWNERS = 8;
 export const PICK_MAX_CLASSES = 3;
@@ -54,12 +53,12 @@ export function chooseProtocol(ours, theirs) {
   return common.length ? Math.max(...common) : null;
 }
 
-// `build` identifies the bookmarklet's own code (see build-bookmarklet.js).
-export function buildPayload(el, { url, rect, dpr, build }) {
+// The facts about a pick, captured at pointerup in no particular wire format.
+// `build` identifies the bookmarklet's own code (see build-bookmarklet.js); the
+// bookmarklet adds `screenshot` once the grab settles.
+export function capturePick(el, { url, rect, dpr, build }) {
   const fiber = fiberOf(el);
   return {
-    type: 'ui-picker:pick',
-    protocol: PICK_PROTOCOL,
     build,
     url,
     element: describeElement(el),
@@ -68,6 +67,38 @@ export function buildPayload(el, { url, rect, dpr, build }) {
     owners: ownerChain(fiber, PICK_MAX_OWNERS),
     rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height, dpr },
   };
+}
+
+// One payload builder per wire protocol this bookmarklet can send. The payload
+// is built only once the board has said which protocol it wants. Supporting a
+// new protocol: add its builder here and its golden payload under test/fixtures.
+export const PAYLOAD_BUILDERS = {
+  1(raw) {
+    const p = {
+      type: 'ui-picker:pick',
+      protocol: 1,
+      build: raw.build,
+      url: raw.url,
+      element: raw.element,
+      html: raw.html,
+      jsxAt: raw.jsxAt,
+      owners: raw.owners,
+      rect: raw.rect,
+    };
+    if (raw.screenshot) p.screenshot = raw.screenshot;
+    return p;
+  },
+};
+
+export function protocolsOf(builders) {
+  return Object.keys(builders).map(Number);
+}
+
+// Every protocol this bookmarklet can send.
+export const PICK_PROTOCOLS = protocolsOf(PAYLOAD_BUILDERS);
+
+export function buildPayload(raw, protocol, builders = PAYLOAD_BUILDERS) {
+  return builders[protocol](raw);
 }
 
 // Rects are DOMRect-like { x, y, width, height }.

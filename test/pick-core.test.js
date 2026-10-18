@@ -1,7 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { fiberOf, debugAt, ownerChain, describeElement, buildPayload, chooseProtocol, containingElement, padRect, dragRect, shotFits, PICK_MAX_SHOT_BYTES, PICK_PROTOCOL } from '../public/pick-core.js';
+import { fiberOf, debugAt, ownerChain, describeElement, capturePick, buildPayload, chooseProtocol, protocolsOf, containingElement, padRect, dragRect, shotFits, PAYLOAD_BUILDERS, PICK_MAX_SHOT_BYTES, PICK_PROTOCOL, PICK_PROTOCOLS } from '../public/pick-core.js';
+import { shape } from './shape.js';
 
 const src = (fileName, lineNumber) => ({ fileName, lineNumber });
 
@@ -54,11 +55,12 @@ test('describeElement copes with SVG className objects', () => {
   assert.deepEqual(describeElement(el({ tag: 'svg', className: { baseVal: 'icon' } })).classes, ['icon']);
 });
 
-test('buildPayload assembles a pick tagged with its protocol', () => {
+test('buildPayload assembles a pick from the captured facts, tagged with its protocol', () => {
   const host = { type: 'td', _debugSource: src('/a/Table.js', 20), _debugOwner: null };
-  const p = buildPayload(el({ html: 'x'.repeat(5000), fiber: host }), {
-    url: 'http://h/', rect: { x: 1, y: 2, width: 3, height: 4 }, dpr: 2,
+  const raw = capturePick(el({ html: 'x'.repeat(5000), fiber: host }), {
+    url: 'http://h/', rect: { x: 1, y: 2, width: 3, height: 4 }, dpr: 2, build: 'b',
   });
+  const p = buildPayload(raw, 1);
   assert.equal(p.type, 'ui-picker:pick');
   assert.equal(p.protocol, PICK_PROTOCOL);
   assert.equal('version' in p, false);
@@ -68,7 +70,7 @@ test('buildPayload assembles a pick tagged with its protocol', () => {
 });
 
 test('buildPayload works on a non-React element', () => {
-  const p = buildPayload(el({}), { url: 'http://h/', rect: { x: 0, y: 0, width: 0, height: 0 }, dpr: 1 });
+  const p = buildPayload(capturePick(el({}), { url: 'http://h/', rect: { x: 0, y: 0, width: 0, height: 0 }, dpr: 1, build: 'b' }), 1);
   assert.equal(p.jsxAt, null);
   assert.deepEqual(p.owners, []);
 });
@@ -135,26 +137,49 @@ test('shotFits checks the PNG prefix and the decoded size', () => {
   assert.equal(shotFits(prefix + 'A'.repeat(max + 4)), false);
 });
 
-// The wire format's keys and value types, so an accidental change to the
-// payload fails here rather than in a user's bookmarks bar.
-const shape = (v) => {
-  if (v === null) return 'null';
-  if (Array.isArray(v)) return [v.length ? shape(v[0]) : 'empty'];
-  if (typeof v === 'object') return Object.fromEntries(Object.keys(v).sort().map((k) => [k, shape(v[k])]));
-  return typeof v;
-};
+const golden = (protocol) => JSON.parse(fs.readFileSync(new URL(`./fixtures/pick-v${protocol}.json`, import.meta.url), 'utf8'));
 
-test('buildPayload output matches the golden payload for its protocol', () => {
-  const golden = JSON.parse(fs.readFileSync(new URL(`./fixtures/pick-v${PICK_PROTOCOL}.json`, import.meta.url), 'utf8'));
+function rawPick() {
   const page = component('Page', src('/a/App.js', 3), null);
   const host = { type: 'td', _debugSource: src('/a/Table.js', 20), _debugOwner: page };
-  const p = buildPayload(el({ tag: 'TD', className: 'cell', text: 'hi', html: '<td>hi</td>', fiber: host }), {
+  const raw = capturePick(el({ tag: 'TD', className: 'cell', text: 'hi', html: '<td>hi</td>', fiber: host }), {
     url: 'http://h/', rect: { x: 1, y: 2, width: 3, height: 4 }, dpr: 2, build: 'abcd1234',
   });
   // The screenshot is added by the bookmarklet once the grab settles.
-  p.screenshot = 'data:image/png;base64,AAAA';
-  assert.deepEqual(shape(p), shape(golden));
-  assert.equal(p.type, golden.type);
-  assert.equal(p.protocol, golden.protocol);
-  assert.equal(p.build, 'abcd1234');
+  raw.screenshot = 'data:image/png;base64,AAAA';
+  return raw;
+}
+
+for (const protocol of PICK_PROTOCOLS) {
+  test(`the v${protocol} builder's output matches the golden v${protocol} payload`, () => {
+    const p = buildPayload(rawPick(), protocol);
+    const g = golden(protocol);
+    assert.deepEqual(shape(p), shape(g));
+    assert.equal(p.type, g.type);
+    assert.equal(p.protocol, protocol);
+    assert.equal(p.build, 'abcd1234');
+  });
+}
+
+test('the bookmarklet speaks exactly the protocols it has builders for', () => {
+  assert.deepEqual(PICK_PROTOCOLS, protocolsOf(PAYLOAD_BUILDERS));
+  assert.equal(PICK_PROTOCOL, Math.max(...PICK_PROTOCOLS));
+});
+
+test('choosing 1 from a board advertising [1, 2] builds the v1 shape', () => {
+  const protocol = chooseProtocol(PICK_PROTOCOLS, [1, 2]);
+  assert.equal(protocol, 1);
+  assert.deepEqual(shape(buildPayload(rawPick(), protocol)), shape(golden(1)));
+});
+
+test('the payload is built by the agreed protocol\'s builder, not the newest one', () => {
+  const builders = { 1: (raw) => ({ protocol: 1, url: raw.url }), 2: (raw) => ({ protocol: 2, href: raw.url }) };
+  assert.deepEqual(protocolsOf(builders), [1, 2]);
+  const protocol = chooseProtocol(protocolsOf(builders), [1]);
+  assert.deepEqual(buildPayload(rawPick(), protocol, builders), { protocol: 1, url: 'http://h/' });
+});
+
+test('without a screenshot the payload has no screenshot key', () => {
+  const { screenshot: _, ...raw } = rawPick();
+  assert.equal('screenshot' in buildPayload(raw, 1), false);
 });
