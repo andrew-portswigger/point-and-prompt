@@ -92,7 +92,7 @@ export function settingsPanel({ fetchText = defaultFetchText, origin } = {}) {
     el.append(linkRow);
     Promise.all([fetchText(PICK_CORE_URL), fetchText(MAIN_URL)]).then(([core, main]) => {
       link.href = buildBookmarklet(core, main, origin);
-      link.textContent = 'Point & Prompt';
+      link.textContent = '👉 Point & Prompt';
     }).catch(() => {
       link.style.display = 'none';
       linkNote.textContent = 'Couldn\'t build the bookmarklet — reopen Settings to retry.';

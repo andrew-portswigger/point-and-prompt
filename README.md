@@ -36,7 +36,7 @@ Requires an Agent Wrangler with host API 1.36.0 or later.
 1. In the wrangler, **Settings → Extensions → + Add extension**, paste this repository's git URL
    and install. It asks for no host capabilities.
 2. Open **Settings → Extensions → Point & Prompt** and follow the steps there: drag
-   **Point & Prompt** to your bookmarks bar. The bookmarklet is tied to that wrangler's address, so
+   **👉 Point & Prompt** to your bookmarks bar (Chrome can't give a bookmarklet a favicon, so the emoji stands in). The bookmarklet is tied to that wrangler's address, so
    reinstall it if the wrangler moves.
 3. Source file:line needs a React 17 or 18 development build (DAST's dev build is one);
    production builds give component names only.

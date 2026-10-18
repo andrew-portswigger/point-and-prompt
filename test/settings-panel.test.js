@@ -53,7 +53,7 @@ test('the link is the bookmarklet built from the extension sources with this ori
   const { link, fetched } = setup();
   await flush();
   assert.deepEqual(fetched.sort(), [MAIN_URL, PICK_CORE_URL].sort());
-  assert.equal(link.textContent, 'Point & Prompt');
+  assert.equal(link.textContent, '👉 Point & Prompt');
   assert.ok(link.href.startsWith('javascript:'));
   assert.match(decodeURIComponent(link.href), /"http:\/\/localhost:7777"/);
 });
