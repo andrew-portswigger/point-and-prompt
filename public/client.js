@@ -2,8 +2,8 @@
 // bookmarklet (`/?ui-picker=1` in its own popup), it takes one pick from the
 // page that opened it and opens the board's own new-session dialog with the
 // pick as the prompt and the screenshot attached. Everywhere else it does nothing.
-import { DEFAULT_REPO_PATH } from './defaults.js';
-import { allowedOriginsFrom, isAcceptedPick } from './pick-check.js';
+import { DEFAULT_REPO_PATH, SUPPORTED_PROTOCOLS } from './defaults.js';
+import { allowedOriginsFrom, readPick } from './pick-check.js';
 import { buildIntent } from './prompt.js';
 import { settingsPanel } from './settings-panel.js';
 
@@ -16,8 +16,10 @@ export function pngBlob(dataUrl) {
   return new Blob([bytes], { type: 'image/png' });
 }
 
+const MISMATCH = "This UI Picker bookmarklet doesn't match this wrangler. Re-drag it from Settings → Extensions → UI Picker.";
+
 // `win`/`loc` are window and location, injected for tests; onLaunch receives
-// the launch's promise once a pick is accepted.
+// the promise of handling the one pick (launch, or the mismatch card).
 export function startPicker({ api, win, loc, onLaunch = () => {} }) {
   if (!new URLSearchParams(loc.search).has('ui-picker')) return false;
   const opener = win.opener;
@@ -51,15 +53,24 @@ export function startPicker({ api, win, loc, onLaunch = () => {} }) {
     win.close();
   }
 
+  // A bookmarklet speaking a protocol this board doesn't: say so, then close
+  // like any other end, once the card is dismissed.
+  async function mismatch() {
+    await api.ui.notify({ id: 'mismatch', title: 'UI Picker', body: MISMATCH });
+    win.close();
+  }
+
   const onMessage = (e) => {
-    if (!isAcceptedPick(e, allowed, opener)) return;
+    const read = readPick(e, allowed, opener);
+    if (!read) return;
     win.removeEventListener('message', onMessage);
-    onLaunch(launch(e.data));
+    onLaunch(read.pick ? launch(read.pick) : mismatch());
   };
   win.addEventListener('message', onMessage);
   // The opener is the page that picked; it waits for this before sending the
-  // pick. Addressed to each allowed origin, so any other opener gets nothing.
-  for (const origin of allowed) opener.postMessage({ type: 'ui-picker:ready' }, origin);
+  // pick in the highest protocol both sides speak. Addressed to each allowed
+  // origin, so any other opener gets nothing.
+  for (const origin of allowed) opener.postMessage({ type: 'ui-picker:ready', protocols: SUPPORTED_PROTOCOLS }, origin);
   return true;
 }
 

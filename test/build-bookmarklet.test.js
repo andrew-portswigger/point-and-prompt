@@ -1,9 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { buildBookmarklet } from '../public/build-bookmarklet.js';
-import { PICK_MAX_HTML, PICK_MAX_OWNERS, PICK_MAX_CLASSES, PICK_MAX_SHOT_BYTES } from '../public/pick-core.js';
-import { MAX_HTML, MAX_OWNERS, MAX_CLASSES, MAX_SHOT_BYTES } from '../public/defaults.js';
+import { buildBookmarklet, buildId } from '../public/build-bookmarklet.js';
+import { PICK_MAX_HTML, PICK_MAX_OWNERS, PICK_MAX_CLASSES, PICK_MAX_SHOT_BYTES, PICK_PROTOCOL } from '../public/pick-core.js';
+import { MAX_HTML, MAX_OWNERS, MAX_CLASSES, MAX_SHOT_BYTES, PROTOCOL, SUPPORTED_PROTOCOLS } from '../public/defaults.js';
 
 const read = (f) => fs.readFileSync(new URL(`../public/${f}`, import.meta.url), 'utf8');
 
@@ -22,11 +22,32 @@ test('pick-core limits match defaults', () => {
   assert.equal(PICK_MAX_OWNERS, MAX_OWNERS);
   assert.equal(PICK_MAX_CLASSES, MAX_CLASSES);
   assert.equal(PICK_MAX_SHOT_BYTES, MAX_SHOT_BYTES);
+  assert.equal(PICK_PROTOCOL, PROTOCOL);
+  assert.ok(SUPPORTED_PROTOCOLS.includes(PROTOCOL), 'the board accepts what the current bookmarklet speaks');
 });
 
 test('origin is inserted literally, without $ replacement patterns', () => {
   const url = buildBookmarklet('', 'const W = __WRANGLER_ORIGIN__;', 'http://h/$&$1');
   assert.equal(decodeURIComponent(url.slice('javascript:'.length)).includes('"http://h/$&$1"'), true);
+});
+
+test('buildId is an 8-hex-digit hash of the two sources', () => {
+  assert.match(buildId('a', 'b'), /^[0-9a-f]{8}$/);
+  assert.equal(buildId('a', 'b'), buildId('a', 'b'));
+  assert.notEqual(buildId('a', 'b'), buildId('a', 'c'));
+});
+
+test('the bookmarklet carries the build id of its sources, whatever the origin', () => {
+  const core = read('pick-core.js');
+  const main = read('bookmarklet-main.js');
+  const id = buildId(core, main);
+  for (const origin of ['http://localhost:7777', 'https://wrangler.example:8443']) {
+    const src = decodeURIComponent(buildBookmarklet(core, main, origin).slice('javascript:'.length));
+    assert.doesNotMatch(src, /__UI_PICKER_BUILD__/);
+    assert.ok(src.includes(JSON.stringify(id)), origin);
+  }
+  const changed = buildBookmarklet(core, main + '\n// edited', 'http://localhost:7777');
+  assert.ok(!decodeURIComponent(changed).includes(JSON.stringify(id)), 'a different source gets a different id');
 });
 
 // Smoke test of the real bookmarklet against minimal fakes. Browser globals
@@ -121,7 +142,10 @@ async function setup({ capture = 'reject', png = PNG, grab = 'ok', surface = 'br
   const fire = (type, ev) => [...listeners].filter(([t]) => t === type).forEach(([, f]) => f(ev));
   const ev = (o = {}) => ({ target, button: 0, clientX: 110, clientY: 105, preventDefault() {}, stopPropagation() {}, ...o });
   const click = (o = {}) => { fire('pointerdown', ev(o)); fire('pointerup', ev(o)); };
-  const ready = () => fire('message', { source: win.popup, data: { type: 'ui-picker:ready' } });
+  win.popup.closed = 0;
+  win.popup.close = () => { win.popup.closed += 1; };
+  // protocols: the list the board advertises, or undefined for a ready without the field.
+  const ready = (protocols = [1]) => fire('message', { source: win.popup, data: { type: 'ui-picker:ready', ...(protocols ? { protocols } : {}) } });
   return {
     win, listeners, timers, opened, posted, banners, live, drawn, track, gdmCalls, document, target, parent, body,
     fire, ev, click, ready, settle: async () => { settle(); await flush(); }, setUnderPoint: (el) => { underPoint = el; },
@@ -184,9 +208,43 @@ test('ready from another source is ignored; ready from the popup posts to the or
   t.ready();
   assert.equal(t.posted.length, 1);
   assert.equal(t.posted[0][1], ORIGIN);
+  assert.equal(t.posted[0][0].build, buildId(read('pick-core.js'), read('bookmarklet-main.js')));
   assert.equal(t.posted[0][0].type, 'ui-picker:pick');
   assert.equal(t.posted[0][0].element.tag, 'button');
   assert.equal('screenshot' in t.posted[0][0], false);
+});
+
+test('a board advertising [1] gets the pick as protocol 1', async () => {
+  const t = await setup();
+  t.click();
+  t.ready([1]);
+  assert.equal(t.posted.length, 1);
+  assert.equal(t.posted[0][0].protocol, 1);
+});
+
+test('a ready without protocols is treated as [1]', async () => {
+  const t = await setup();
+  t.click();
+  t.ready(null);
+  assert.equal(t.posted.length, 1);
+  assert.equal(t.posted[0][0].protocol, 1);
+});
+
+test('a board speaking no common protocol gets no pick: mismatch banner, sharing stops, popup closes', async () => {
+  const t = await setup({ capture: 'resolve' });
+  t.click();
+  t.ready([2]);
+  await flush();
+  assert.equal(t.posted.length, 0);
+  assert.equal(t.banners.at(-1), "UI Picker: this bookmarklet doesn't match the UI Picker on your wrangler. Re-drag it from Settings → Extensions → UI Picker.");
+  assert.equal(t.track.stopped > 0, true);
+  assert.equal(t.track.on.ended, undefined);
+  assert.equal(t.win.popup.closed, 1, 'the popup the bookmarklet opened is closed');
+  assert.equal(t.listeners.some(([type]) => type === 'message'), false);
+  t.timers.find(([, m]) => m === 30000)[0]();
+  await flush();
+  assert.equal(t.posted.length, 0);
+  assert.equal(t.banners.some((b) => /didn't respond/.test(b)), false);
 });
 
 test('no ready within 30s removes the listener and shows a banner', async () => {

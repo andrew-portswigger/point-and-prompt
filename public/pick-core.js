@@ -1,5 +1,8 @@
 // Inlined into the bookmarklet by build-bookmarklet.js: no imports, no
 // top-level DOM access, exports only at line start (they are stripped).
+// Mirrors defaults.js PROTOCOL; PICK_PROTOCOLS is every protocol this bookmarklet can send.
+export const PICK_PROTOCOL = 1;
+export const PICK_PROTOCOLS = [PICK_PROTOCOL];
 export const PICK_MAX_HTML = 4096;
 export const PICK_MAX_OWNERS = 8;
 export const PICK_MAX_CLASSES = 3;
@@ -45,11 +48,19 @@ export function describeElement(el) {
   };
 }
 
-export function buildPayload(el, { url, rect, dpr }) {
+// The highest protocol in both lists, or null when they share none.
+export function chooseProtocol(ours, theirs) {
+  const common = ours.filter((p) => theirs.includes(p));
+  return common.length ? Math.max(...common) : null;
+}
+
+// `build` identifies the bookmarklet's own code (see build-bookmarklet.js).
+export function buildPayload(el, { url, rect, dpr, build }) {
   const fiber = fiberOf(el);
   return {
     type: 'ui-picker:pick',
-    version: 1,
+    protocol: PICK_PROTOCOL,
+    build,
     url,
     element: describeElement(el),
     html: (el.outerHTML || '').slice(0, PICK_MAX_HTML),

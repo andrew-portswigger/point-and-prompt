@@ -8,7 +8,7 @@ const PNG = 'data:image/png;base64,' + Buffer.from(PNG_BYTES).toString('base64')
 const flush = () => new Promise((r) => setImmediate(r));
 
 const pick = {
-  type: 'ui-picker:pick', version: 1, url: 'http://localhost:3333/scans', html: '<b>hi</b>',
+  type: 'ui-picker:pick', protocol: 1, build: 'b0b0b0b0', url: 'http://localhost:3333/scans', html: '<b>hi</b>',
   element: { tag: 'b', id: '', classes: ['c'], text: 'hi' }, jsxAt: '/Users/me/vcs/enterprise/src/A.js:4',
   owners: [{ name: 'Foo', at: null }],
 };
@@ -62,14 +62,14 @@ test('posts ready to the opener once per allowed origin, never to *', () => {
   const t = setup();
   assert.equal(t.started, true);
   assert.deepEqual(t.opener.posted, [
-    [{ type: 'ui-picker:ready' }, 'http://localhost:3333'],
-    [{ type: 'ui-picker:ready' }, 'http://localhost:1234'],
+    [{ type: 'ui-picker:ready', protocols: [1] }, 'http://localhost:3333'],
+    [{ type: 'ui-picker:ready', protocols: [1] }, 'http://localhost:1234'],
   ]);
 });
 
 test('ready goes only to the allowedOrigins setting when set', () => {
   const t = setup({ settings: { allowedOrigins: ['http://app:9'] } });
-  assert.deepEqual(t.opener.posted, [[{ type: 'ui-picker:ready' }, 'http://app:9']]);
+  assert.deepEqual(t.opener.posted, [[{ type: 'ui-picker:ready', protocols: [1] }, 'http://app:9']]);
 });
 
 test('settings() returning undefined falls back to the defaults', async () => {
@@ -91,11 +91,46 @@ test('ignores picks from another source, a disallowed origin or of the wrong sha
   const t = setup();
   t.send(pick, { source: { other: true } });
   t.send(pick, { origin: 'http://evil' });
-  t.send({ ...pick, version: 2 });
   t.send({ ...pick, screenshot: 'data:image/jpeg;base64,AAAA' });
   t.send({ source: 'react-devtools-content-script' });
   await flush();
   assert.equal(t.calls.openDispatch.length, 0);
+  assert.equal(t.listeners.size, 1);
+});
+
+const MISMATCH = "This UI Picker bookmarklet doesn't match this wrangler. Re-drag it from Settings → Extensions → UI Picker.";
+
+test('an unsupported protocol from the opener says so, opens no dialog, and closes once the card is dismissed', async () => {
+  let dismiss;
+  const t = setup({ notify: () => new Promise((r) => { dismiss = r; }) });
+  t.send({ ...pick, protocol: 2 });
+  await flush();
+  assert.equal(t.calls.openDispatch.length, 0);
+  assert.equal(t.calls.notify.length, 1);
+  assert.equal(t.calls.notify[0].body, MISMATCH);
+  assert.equal(t.listeners.size, 0, 'one answer per popup');
+  assert.equal(t.win.closed, 0, 'open while the card is up');
+  dismiss(null);
+  await Promise.all(t.launches);
+  assert.equal(t.win.closed, 1);
+});
+
+test('a pick without a protocol is a mismatch too', async () => {
+  const { protocol: _, ...old } = pick;
+  const t = setup();
+  t.send({ ...old, version: 1 });
+  await Promise.all(t.launches);
+  assert.equal(t.calls.openDispatch.length, 0);
+  assert.equal(t.calls.notify[0].body, MISMATCH);
+  assert.equal(t.win.closed, 1);
+});
+
+test('an unsupported protocol from another origin or window is ignored silently', async () => {
+  const t = setup();
+  t.send({ ...pick, protocol: 2 }, { origin: 'http://evil' });
+  t.send({ ...pick, protocol: 2 }, { source: {} });
+  await flush();
+  assert.equal(t.calls.notify.length, 0);
   assert.equal(t.listeners.size, 1);
 });
 
@@ -223,7 +258,7 @@ test('register runs the picker on the real window and location with registrar.ap
     delete globalThis.window;
     delete globalThis.location;
   }
-  assert.deepEqual(posted, [{ type: 'ui-picker:ready' }]);
+  assert.deepEqual(posted, [{ type: 'ui-picker:ready', protocols: [1] }]);
   assert.deepEqual(registered.map(([slot, c]) => [slot, c.id]), [['settings.panel', 'ui-picker']]);
   assert.equal(typeof registered[0][1].mount, 'function');
   assert.equal(typeof registered[0][1].save, 'function');

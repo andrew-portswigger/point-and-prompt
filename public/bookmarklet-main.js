@@ -1,4 +1,7 @@
 const WRANGLER = __WRANGLER_ORIGIN__;
+// A hash of this code, stamped by build-bookmarklet.js; the board compares it
+// with the code it serves now and suggests re-dragging when they differ.
+const BUILD = __UI_PICKER_BUILD__;
 if (window.__uiPickerActive) return;
 window.__uiPickerActive = true;
 
@@ -6,6 +9,9 @@ const DRAG_PX = 4;
 // The board boots (socket, graph, extension modules) before it can say ready.
 const READY_MS = 30000;
 const CLICK_PAD = 8;
+// A board that predates protocol negotiation speaks protocol 1 only.
+const LEGACY_PROTOCOLS = [1];
+const MISMATCH = "UI Picker: this bookmarklet doesn't match the UI Picker on your wrangler. Re-drag it from Settings → Extensions → UI Picker.";
 
 // Ask to share this tab right away, synchronously: running the bookmarklet is
 // the user activation getDisplayMedia needs. Transient activation is time-based
@@ -185,7 +191,7 @@ function up(e) {
   // The click follows pointerup in the same burst of events, so drop the
   // swallowers on the next tick (after it); a disabled control gets no click.
   setTimeout(release, 0);
-  const payload = buildPayload(el, { url: location.href, rect, dpr: devicePixelRatio });
+  const payload = buildPayload(el, { url: location.href, rect, dpr: devicePixelRatio, build: BUILD });
   // Open the popup before any await, while the press still counts as activation.
   // A fresh window name per pick: a reused name would keep the first tab as opener.
   const name = 'ui-picker-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
@@ -205,7 +211,7 @@ function up(e) {
   };
   if (stream) {
     grab(rect).then((png) => {
-      if (shotDone) return;
+      if (shotDone || sent) return;
       if (png) payload.screenshot = png;
       shotDone = true;
       send();
@@ -215,6 +221,18 @@ function up(e) {
     if (m.source !== popup || !m.data || m.data.type !== 'ui-picker:ready') return;
     ready = true;
     removeEventListener('message', onReady);
+    const theirs = Array.isArray(m.data.protocols) ? m.data.protocols : LEGACY_PROTOCOLS;
+    const protocol = chooseProtocol(PICK_PROTOCOLS, theirs);
+    if (protocol === null) {
+      // Nothing the board would accept: send nothing and close the popup we opened.
+      sent = true;
+      stopSharing();
+      popup.close();
+      dismissBanners();
+      banner(MISMATCH, 10000);
+      return;
+    }
+    payload.protocol = protocol;
     send();
   };
   addEventListener('message', onReady);

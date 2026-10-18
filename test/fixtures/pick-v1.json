@@ -1,0 +1,35 @@
+{
+  "type": "ui-picker:pick",
+  "protocol": 1,
+  "build": "54621b85",
+  "url": "http://localhost:3333/scans",
+  "element": {
+    "tag": "button",
+    "id": "rescan",
+    "classes": [
+      "btn",
+      "btn-primary"
+    ],
+    "text": "Rescan"
+  },
+  "html": "<button id=\"rescan\" class=\"btn btn-primary\">Rescan</button>",
+  "jsxAt": "/Users/me/vcs/enterprise/src/ScanTable.jsx:88",
+  "owners": [
+    {
+      "name": "ScanTable",
+      "at": "/Users/me/vcs/enterprise/src/ScansPage.jsx:40"
+    },
+    {
+      "name": "ScansPage",
+      "at": "/Users/me/vcs/enterprise/src/ScansPage.jsx:12"
+    }
+  ],
+  "rect": {
+    "x": 92,
+    "y": 92,
+    "width": 66,
+    "height": 36,
+    "dpr": 2
+  },
+  "screenshot": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+}
