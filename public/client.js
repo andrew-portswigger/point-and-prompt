@@ -5,7 +5,8 @@
 import { DEFAULT_REPO_PATH, SUPPORTED_PROTOCOLS } from './defaults.js';
 import { allowedOriginsFrom, readPick } from './pick-check.js';
 import { buildIntent } from './prompt.js';
-import { settingsPanel } from './settings-panel.js';
+import { buildId } from './build-bookmarklet.js';
+import { defaultFetchText, MAIN_URL, PICK_CORE_URL, settingsPanel } from './settings-panel.js';
 
 const PNG_PREFIX = 'data:image/png;base64,';
 
@@ -16,11 +17,20 @@ export function pngBlob(dataUrl) {
   return new Blob([bytes], { type: 'image/png' });
 }
 
+const STALE = 'A newer UI Picker bookmarklet is available. Re-drag it from Settings → Extensions → UI Picker.';
 const MISMATCH = "This UI Picker bookmarklet doesn't match this wrangler. Re-drag it from Settings → Extensions → UI Picker.";
 
-// `win`/`loc` are window and location, injected for tests; onLaunch receives
-// the promise of handling the one pick (launch, or the mismatch card).
-export function startPicker({ api, win, loc, onLaunch = () => {} }) {
+// The id of the bookmarklet this board would hand out now, from the same
+// sources the settings panel builds it from.
+async function currentBuildId(fetchText) {
+  const [core, main] = await Promise.all([fetchText(PICK_CORE_URL), fetchText(MAIN_URL)]);
+  return buildId(core, main);
+}
+
+// `win`/`loc` are window and location and `fetchText` reads an extension file,
+// injected for tests; onLaunch receives the promise of handling the one pick
+// (launch, or the mismatch card).
+export function startPicker({ api, win, loc, fetchText = defaultFetchText, onLaunch = () => {} }) {
   if (!new URLSearchParams(loc.search).has('ui-picker')) return false;
   const opener = win.opener;
   if (!opener || win.top !== win) return false;
@@ -60,11 +70,26 @@ export function startPicker({ api, win, loc, onLaunch = () => {} }) {
     win.close();
   }
 
+  // Still compatible, but not the bookmarklet the settings panel hands out now.
+  // Off to the side of the launch: it never holds up the dialog, and says
+  // nothing if the current id can't be worked out.
+  function nudgeIfStale(build) {
+    currentBuildId(fetchText).then((current) => {
+      if (current !== build) return api.ui.notify({ id: 'stale', title: 'UI Picker', body: STALE });
+      return null;
+    }).catch(() => {});
+  }
+
   const onMessage = (e) => {
     const read = readPick(e, allowed, opener);
     if (!read) return;
     win.removeEventListener('message', onMessage);
-    onLaunch(read.pick ? launch(read.pick) : mismatch());
+    if (!read.pick) {
+      onLaunch(mismatch());
+      return;
+    }
+    onLaunch(launch(read.pick));
+    nudgeIfStale(read.pick.build);
   };
   win.addEventListener('message', onMessage);
   // The opener is the page that picked; it waits for this before sending the

@@ -7,7 +7,7 @@ import { DEFAULT_ALLOWED_ORIGINS, DEFAULT_REPO_PATH } from './defaults.js';
 export const PICK_CORE_URL = '/ext/ui-picker/pick-core.js';
 export const MAIN_URL = '/ext/ui-picker/bookmarklet-main.js';
 
-async function defaultFetchText(url) {
+export async function defaultFetchText(url) {
   const r = await fetch(url);
   if (!r.ok) throw new Error(`${url}: ${r.status}`);
   return r.text();

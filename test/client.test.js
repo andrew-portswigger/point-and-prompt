@@ -1,19 +1,27 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import client, { startPicker, pngBlob } from '../public/client.js';
+import fs from 'node:fs';
 import { buildIntent } from '../public/prompt.js';
+import { buildId } from '../public/build-bookmarklet.js';
+import { PICK_CORE_URL, MAIN_URL } from '../public/settings-panel.js';
+
+const read = (f) => fs.readFileSync(new URL(`../public/${f}`, import.meta.url), 'utf8');
+const SOURCES = { [PICK_CORE_URL]: read('pick-core.js'), [MAIN_URL]: read('bookmarklet-main.js') };
+const CURRENT_BUILD = buildId(SOURCES[PICK_CORE_URL], SOURCES[MAIN_URL]);
+const serveSources = (url) => (url in SOURCES ? Promise.resolve(SOURCES[url]) : Promise.reject(new Error('404')));
 
 const PNG_BYTES = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
 const PNG = 'data:image/png;base64,' + Buffer.from(PNG_BYTES).toString('base64');
 const flush = () => new Promise((r) => setImmediate(r));
 
 const pick = {
-  type: 'ui-picker:pick', protocol: 1, build: 'b0b0b0b0', url: 'http://localhost:3333/scans', html: '<b>hi</b>',
+  type: 'ui-picker:pick', protocol: 1, build: CURRENT_BUILD, url: 'http://localhost:3333/scans', html: '<b>hi</b>',
   element: { tag: 'b', id: '', classes: ['c'], text: 'hi' }, jsxAt: '/Users/me/vcs/enterprise/src/A.js:4',
   owners: [{ name: 'Foo', at: null }],
 };
 
-function setup({ search = '?ui-picker=1', opener = { posted: [] }, framed = false, settings = {}, stage, openDispatch, notify } = {}) {
+function setup({ search = '?ui-picker=1', opener = { posted: [] }, framed = false, settings = {}, stage, openDispatch, notify, fetchText = serveSources } = {}) {
   if (opener) opener.postMessage = (msg, target) => opener.posted.push([msg, target]);
   const listeners = new Set();
   const win = {
@@ -32,7 +40,7 @@ function setup({ search = '?ui-picker=1', opener = { posted: [] }, framed = fals
     ui: { notify: (o) => { calls.notify.push(o); return notify ? notify(o) : Promise.resolve(null); } },
   };
   const launches = [];
-  const started = startPicker({ api, win, loc: { search }, onLaunch: (p) => launches.push(p) });
+  const started = startPicker({ api, win, loc: { search }, fetchText, onLaunch: (p) => launches.push(p) });
   const send = (data, { origin = 'http://localhost:3333', source = opener } = {}) => {
     for (const f of [...listeners]) f({ data, origin, source });
   };
@@ -235,6 +243,51 @@ test('Retry re-stages the screenshot and opens the dialog again', async () => {
   assert.equal(t.calls.stage.length, 2);
   assert.deepEqual(t.calls.openDispatch.map((o) => o.images), [['img-1.png'], ['img-2.png']]);
   assert.equal(t.win.closed, 1);
+});
+
+const STALE = 'A newer UI Picker bookmarklet is available. Re-drag it from Settings → Extensions → UI Picker.';
+const stale = (t) => t.calls.notify.filter((n) => n.body === STALE);
+
+test('a pick from an older build opens the dialog and suggests re-dragging', async () => {
+  const t = setup();
+  t.send({ ...pick, build: 'deadbeef' });
+  await Promise.all(t.launches);
+  await flush();
+  assert.equal(t.calls.openDispatch.length, 1);
+  assert.equal(stale(t).length, 1);
+});
+
+test('a pick from the current build gets no nudge', async () => {
+  const t = setup();
+  t.send(pick);
+  await Promise.all(t.launches);
+  await flush();
+  assert.equal(t.calls.openDispatch.length, 1);
+  assert.equal(t.calls.notify.length, 0);
+});
+
+test('no nudge when the current build id cannot be computed', async () => {
+  const t = setup({ fetchText: () => Promise.reject(new Error('offline')) });
+  t.send({ ...pick, build: 'deadbeef' });
+  await Promise.all(t.launches);
+  await flush();
+  assert.equal(t.calls.openDispatch.length, 1);
+  assert.equal(t.calls.notify.length, 0);
+});
+
+test('working out the build never delays the dialog', async () => {
+  const fetched = [];
+  const t = setup({ fetchText: (url) => { fetched.push(url); return new Promise(() => {}); } });
+  t.send({ ...pick, build: 'deadbeef' });
+  await Promise.all(t.launches);
+  assert.equal(t.calls.openDispatch.length, 1);
+  assert.deepEqual(fetched.sort(), [MAIN_URL, PICK_CORE_URL].sort(), 'fetched only once a pick arrives');
+});
+
+test('the build is not fetched until a pick arrives', () => {
+  const fetched = [];
+  setup({ fetchText: (url) => { fetched.push(url); return serveSources(url); } });
+  assert.deepEqual(fetched, []);
 });
 
 test('pngBlob decodes the data URL', async () => {
