@@ -145,7 +145,7 @@ async function setup({ capture = 'reject', png = PNG, grab = 'ok', surface = 'br
   win.popup.closed = 0;
   win.popup.close = () => { win.popup.closed += 1; };
   // protocols: the list the board advertises, or undefined for a ready without the field.
-  const ready = (protocols = [1]) => fire('message', { source: win.popup, data: { type: 'ui-picker:ready', ...(protocols ? { protocols } : {}) } });
+  const ready = (protocols = [1], build) => fire('message', { source: win.popup, data: { type: 'ui-picker:ready', ...(protocols ? { protocols } : {}), ...(build ? { build } : {}) } });
   return {
     win, listeners, timers, opened, posted, banners, live, drawn, track, gdmCalls, document, target, parent, body,
     fire, ev, click, ready, settle: async () => { settle(); await flush(); }, setUnderPoint: (el) => { underPoint = el; },
@@ -245,6 +245,44 @@ test('a board speaking no common protocol gets no pick: mismatch banner, sharing
   await flush();
   assert.equal(t.posted.length, 0);
   assert.equal(t.banners.some((b) => /didn't respond/.test(b)), false);
+});
+
+const STALE = 'UI Picker: a newer bookmarklet is available. Re-drag it from Settings → Extensions → UI Picker.';
+const OWN_BUILD = buildId(read('pick-core.js'), read('bookmarklet-main.js'));
+
+test('a board on a newer build gets the pick, then the page suggests re-dragging for 8s', async () => {
+  const t = await setup();
+  t.click();
+  t.ready([1], 'deadbeef');
+  assert.equal(t.posted.length, 1);
+  assert.equal(t.banners.at(-1), STALE);
+  assert.ok(t.timers.some(([, ms]) => ms === 8000));
+});
+
+test('no stale banner when the board is on the same build', async () => {
+  const t = await setup();
+  t.click();
+  t.ready([1], OWN_BUILD);
+  assert.equal(t.posted.length, 1);
+  assert.equal(t.banners.includes(STALE), false);
+});
+
+test('no stale banner when the board sends no build', async () => {
+  const t = await setup();
+  t.click();
+  t.ready([1]);
+  assert.equal(t.posted.length, 1);
+  assert.equal(t.banners.includes(STALE), false);
+});
+
+test('with capture, the stale banner waits for the pick to be sent', async () => {
+  const t = await setup({ capture: 'resolve' });
+  t.click();
+  t.ready([1], 'deadbeef');
+  assert.equal(t.banners.includes(STALE), false, 'not before the grab: it would be in the screenshot');
+  await flush();
+  assert.equal(t.posted.length, 1);
+  assert.equal(t.banners.at(-1), STALE);
 });
 
 test('no ready within 30s removes the listener and shows a banner', async () => {

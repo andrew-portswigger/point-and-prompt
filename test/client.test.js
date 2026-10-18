@@ -21,7 +21,7 @@ const pick = {
   owners: [{ name: 'Foo', at: null }],
 };
 
-function setup({ search = '?ui-picker=1', opener = { posted: [] }, framed = false, settings = {}, stage, openDispatch, notify, fetchText = serveSources } = {}) {
+function setup({ search = '?ui-picker=1', opener = { posted: [] }, framed = false, settings = {}, stage, openDispatch, notify, fetchText = serveSources, buildWaitMs } = {}) {
   if (opener) opener.postMessage = (msg, target) => opener.posted.push([msg, target]);
   const listeners = new Set();
   const win = {
@@ -40,7 +40,7 @@ function setup({ search = '?ui-picker=1', opener = { posted: [] }, framed = fals
     ui: { notify: (o) => { calls.notify.push(o); return notify ? notify(o) : Promise.resolve(null); } },
   };
   const launches = [];
-  const started = startPicker({ api, win, loc: { search }, fetchText, onLaunch: (p) => launches.push(p) });
+  const started = startPicker({ api, win, loc: { search }, fetchText, buildWaitMs, onLaunch: (p) => launches.push(p) });
   const send = (data, { origin = 'http://localhost:3333', source = opener } = {}) => {
     for (const f of [...listeners]) f({ data, origin, source });
   };
@@ -66,22 +66,53 @@ test('does nothing inside a frame', () => {
   assert.deepEqual(t.opener.posted, []);
 });
 
-test('posts ready to the opener once per allowed origin, never to *', () => {
+const READY = { type: 'ui-picker:ready', protocols: [1], build: CURRENT_BUILD };
+
+test('posts ready with the protocols and current build to the opener once per allowed origin, never to *', async () => {
   const t = setup();
   assert.equal(t.started, true);
+  await flush();
   assert.deepEqual(t.opener.posted, [
-    [{ type: 'ui-picker:ready', protocols: [1] }, 'http://localhost:3333'],
-    [{ type: 'ui-picker:ready', protocols: [1] }, 'http://localhost:1234'],
+    [READY, 'http://localhost:3333'],
+    [READY, 'http://localhost:1234'],
   ]);
 });
 
-test('ready goes only to the allowedOrigins setting when set', () => {
+test('ready goes only to the allowedOrigins setting when set', async () => {
   const t = setup({ settings: { allowedOrigins: ['http://app:9'] } });
-  assert.deepEqual(t.opener.posted, [[{ type: 'ui-picker:ready', protocols: [1] }, 'http://app:9']]);
+  await flush();
+  assert.deepEqual(t.opener.posted, [[READY, 'http://app:9']]);
+});
+
+test('ready omits build when the sources cannot be fetched', async () => {
+  const t = setup({ fetchText: () => Promise.reject(new Error('offline')) });
+  await flush();
+  assert.deepEqual(t.opener.posted.map(([m]) => m), [
+    { type: 'ui-picker:ready', protocols: [1] },
+    { type: 'ui-picker:ready', protocols: [1] },
+  ]);
+});
+
+test('a slow fetch does not hold up ready for long: it goes without build', async () => {
+  const t = setup({ fetchText: () => new Promise(() => {}), buildWaitMs: 5 });
+  await flush();
+  assert.equal(t.opener.posted.length, 0);
+  await new Promise((r) => setTimeout(r, 20));
+  assert.deepEqual(t.opener.posted.map(([m]) => m)[0], { type: 'ui-picker:ready', protocols: [1] });
+});
+
+test('the board shows no stale-build notice itself: the bookmarklet does', async () => {
+  const t = setup();
+  t.send({ ...pick, build: 'deadbeef' });
+  await Promise.all(t.launches);
+  await flush();
+  assert.equal(t.calls.openDispatch.length, 1);
+  assert.equal(t.calls.notify.length, 0);
 });
 
 test('settings() returning undefined falls back to the defaults', async () => {
   const t = setup({ settings: undefined });
+  await flush();
   assert.equal(t.opener.posted.length, 2);
   t.send(pick);
   await Promise.all(t.launches);
@@ -245,51 +276,6 @@ test('Retry re-stages the screenshot and opens the dialog again', async () => {
   assert.equal(t.win.closed, 1);
 });
 
-const STALE = 'A newer UI Picker bookmarklet is available. Re-drag it from Settings → Extensions → UI Picker.';
-const stale = (t) => t.calls.notify.filter((n) => n.body === STALE);
-
-test('a pick from an older build opens the dialog and suggests re-dragging', async () => {
-  const t = setup();
-  t.send({ ...pick, build: 'deadbeef' });
-  await Promise.all(t.launches);
-  await flush();
-  assert.equal(t.calls.openDispatch.length, 1);
-  assert.equal(stale(t).length, 1);
-});
-
-test('a pick from the current build gets no nudge', async () => {
-  const t = setup();
-  t.send(pick);
-  await Promise.all(t.launches);
-  await flush();
-  assert.equal(t.calls.openDispatch.length, 1);
-  assert.equal(t.calls.notify.length, 0);
-});
-
-test('no nudge when the current build id cannot be computed', async () => {
-  const t = setup({ fetchText: () => Promise.reject(new Error('offline')) });
-  t.send({ ...pick, build: 'deadbeef' });
-  await Promise.all(t.launches);
-  await flush();
-  assert.equal(t.calls.openDispatch.length, 1);
-  assert.equal(t.calls.notify.length, 0);
-});
-
-test('working out the build never delays the dialog', async () => {
-  const fetched = [];
-  const t = setup({ fetchText: (url) => { fetched.push(url); return new Promise(() => {}); } });
-  t.send({ ...pick, build: 'deadbeef' });
-  await Promise.all(t.launches);
-  assert.equal(t.calls.openDispatch.length, 1);
-  assert.deepEqual(fetched.sort(), [MAIN_URL, PICK_CORE_URL].sort(), 'fetched only once a pick arrives');
-});
-
-test('the build is not fetched until a pick arrives', () => {
-  const fetched = [];
-  setup({ fetchText: (url) => { fetched.push(url); return serveSources(url); } });
-  assert.deepEqual(fetched, []);
-});
-
 test('pngBlob decodes the data URL', async () => {
   const blob = pngBlob(PNG);
   assert.deepEqual([...new Uint8Array(await blob.arrayBuffer())], PNG_BYTES);
@@ -311,6 +297,8 @@ test('register runs the picker on the real window and location with registrar.ap
     delete globalThis.window;
     delete globalThis.location;
   }
+  // No server here, so the sources can't be fetched: ready goes without build.
+  for (let i = 0; i < 50 && !posted.length; i += 1) await flush();
   assert.deepEqual(posted, [{ type: 'ui-picker:ready', protocols: [1] }]);
   assert.deepEqual(registered.map(([slot, c]) => [slot, c.id]), [['settings.panel', 'ui-picker']]);
   assert.equal(typeof registered[0][1].mount, 'function');

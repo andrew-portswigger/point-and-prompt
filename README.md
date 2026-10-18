@@ -72,11 +72,12 @@ Worktree, task, model and effort are chosen in the dialog, which remembers your 
 The bookmarklet holds its own copy of the picker code, so it doesn't change when the extension
 updates; only re-dragging it from **Settings → Extensions → UI Picker** does. The two sides agree
 on a wire protocol when the board says it's ready: the board lists every protocol it accepts, and
-the bookmarklet sends the pick in the highest one both speak.
+the bookmarklet sends the pick in the highest one both speak. The board also says which
+bookmarklet build it hands out now.
 
 - When the extension updates, bookmarklets you already have keep working as long as the board
-  still accepts their protocol. If the bookmarklet's code is older than the board's, the board
-  opens the dialog as usual and suggests re-dragging it.
+  still accepts their protocol. If the bookmarklet's build differs from the board's, the pick goes
+  through as usual and a banner on the DAST page suggests re-dragging it.
 - If the two share no protocol, you're told straight away (on the page or on the board) to
   re-drag the bookmarklet, rather than waiting for a timeout.
 

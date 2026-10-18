@@ -11,6 +11,7 @@ const READY_MS = 30000;
 const CLICK_PAD = 8;
 // A board that predates protocol negotiation speaks protocol 1 only.
 const LEGACY_PROTOCOLS = [1];
+const STALE = 'UI Picker: a newer bookmarklet is available. Re-drag it from Settings → Extensions → UI Picker.';
 const MISMATCH = "UI Picker: this bookmarklet doesn't match the UI Picker on your wrangler. Re-drag it from Settings → Extensions → UI Picker.";
 
 // Ask to share this tab right away, synchronously: running the bookmarklet is
@@ -204,10 +205,13 @@ function up(e) {
   let ready = false;
   let shotDone = !stream;
   let sent = false;
+  let boardBuild = null; // the build the board hands out now, if it said
   const send = () => {
     if (sent || !ready || !shotDone) return;
     sent = true;
     popup.postMessage(payload, WRANGLER);
+    // After the grab, so the banner is never in the screenshot.
+    if (boardBuild && boardBuild !== BUILD) banner(STALE, 8000);
   };
   if (stream) {
     grab(rect).then((png) => {
@@ -233,6 +237,7 @@ function up(e) {
       return;
     }
     payload.protocol = protocol;
+    if (typeof m.data.build === 'string') boardBuild = m.data.build;
     send();
   };
   addEventListener('message', onReady);
