@@ -302,17 +302,30 @@ export function clipBox(box, viewport) {
 // What the live drag view outlines: per group (componentGroups, one per
 // instance), the union of the boxes of the elements folded into it, clipped to
 // the viewport, at most max. Only the first instance of each component is
-// tagged with its name. Groups with nothing on screen are left out.
+// tagged with its name. Groups with nothing on screen are left out. The cap
+// goes to the first instance of each component before any repeat, so every
+// component the pick lists gets an outline; kept outlines stay in order.
 export function highlightBoxes(groups, boxes, viewport, max) {
-  const out = [];
-  const tagged = new Set();
+  const visible = [];
   for (const g of groups) {
-    if (out.length >= max) break;
     const u = unionBox(g.items.map((i) => boxes[i]));
     const clipped = u && clipBox(u, viewport);
-    if (!clipped) continue;
-    out.push({ name: g.name, box: clipped, tag: !tagged.has(g.key) });
-    tagged.add(g.key);
+    if (clipped) visible.push({ key: g.key, name: g.name, box: clipped });
   }
+  const seen = new Set();
+  const firsts = [];
+  const repeats = [];
+  visible.forEach((v, i) => {
+    (seen.has(v.key) ? repeats : firsts).push(i);
+    seen.add(v.key);
+  });
+  const keep = new Set([...firsts, ...repeats].slice(0, max));
+  const tagged = new Set();
+  const out = [];
+  visible.forEach((v, i) => {
+    if (!keep.has(i)) return;
+    out.push({ name: v.name, box: v.box, tag: !tagged.has(v.key) });
+    tagged.add(v.key);
+  });
   return out;
 }

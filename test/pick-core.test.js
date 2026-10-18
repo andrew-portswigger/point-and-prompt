@@ -462,3 +462,17 @@ test('highlightBoxes outlines each instance with the union of its elements\' box
   ]);
   assert.equal(highlightBoxes(groups, boxes, vp, 2).length, 2);
 });
+
+test('highlightBoxes spends its cap on each distinct component before repeat instances', () => {
+  const vp = { width: 800, height: 600 };
+  const boxes = Array.from({ length: 13 }, (_, i) => box(0, i * 20, 10, 10));
+  const rows = Array.from({ length: 12 }, (_, i) => ({ key: 'Row', name: 'Row', at: 'r:1', items: [i] }));
+  const groups = [...rows, { key: 'Footer', name: 'Footer', at: 'f:1', items: [12] }];
+  const out = highlightBoxes(groups, boxes, vp, 10);
+  assert.equal(out.length, 10);
+  // Footer is listed in the pick, so it must be outlined even though twelve rows came first.
+  assert.ok(out.some((o) => o.name === 'Footer' && o.tag));
+  assert.equal(out.filter((o) => o.tag).length, 2);
+  // Kept outlines stay in document order.
+  assert.deepEqual(out.map((o) => o.box.y), [...out.map((o) => o.box.y)].sort((a, b) => a - b));
+});
