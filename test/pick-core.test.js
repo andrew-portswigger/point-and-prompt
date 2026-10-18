@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { fiberOf, debugAt, ownerChain, describeElement, capturePick, buildPayload, chooseProtocol, protocolsOf, containingElement, padRect, dragRect, shotFits, mostlyInside, descendants, componentEntry, outermostComponents, componentsInside, PAYLOAD_BUILDERS, PICK_CONTAINS_OVERLAP, PICK_MAX_CONTAINS, PICK_MAX_SHOT_BYTES, PICK_PROTOCOL, PICK_PROTOCOLS } from '../public/pick-core.js';
+import { fiberOf, debugAt, ownerChain, describeElement, capturePick, buildPayload, chooseProtocol, protocolsOf, containingElement, padRect, dragRect, shotFits, mostlyInside, descendants, ownerPath, componentGroups, componentGroupsInside, componentsInside, PAYLOAD_BUILDERS, PICK_CONTAINS_OVERLAP, PICK_MAX_CONTAINS, PICK_MAX_SHOT_BYTES, PICK_PROTOCOL, PICK_PROTOCOLS } from '../public/pick-core.js';
 import { OPTIONAL_FIELDS } from '../public/defaults.js';
 import { shape } from './shape.js';
 
@@ -246,57 +246,123 @@ test('descendants lists elements in document order, excluding the root, up to a 
 // Fibers: component(name, at, owner) is a component; host(owner) a DOM element's fiber.
 const host = (owner) => ({ type: 'div', _debugOwner: owner });
 
-test('componentEntry names the component that rendered a host, where it is used, and its owners', () => {
+test('ownerPath lists the components above a host, nearest first, up to the stop set', () => {
   const page = component('Page', src('/a/App.js', 3), null);
   const row = component('Row', src('/a/Page.js', 9), page);
-  assert.deepEqual(componentEntry(host(row)), { name: 'Row', at: '/a/Page.js:9', owners: ['Page\u0000/a/App.js:3'] });
-  assert.equal(componentEntry(host(null)), null);
-  assert.equal(componentEntry(null), null);
+  const anon = { type: 'div', _debugOwner: row }; // not a component: skipped
+  const badge = component('Badge', src('/a/Row.js', 40), anon);
+  assert.deepEqual(ownerPath(host(badge), new Set()).map((c) => c.name), ['Badge', 'Row', 'Page']);
+  assert.deepEqual(ownerPath(host(badge), new Set(['Row\u0000/a/Page.js:9'])), [{ key: 'Badge\u0000/a/Row.js:40', name: 'Badge', at: '/a/Row.js:40' }]);
+  assert.deepEqual(ownerPath(null, new Set()), []);
 });
 
-const entry = (name, at, owners = []) => ({ name, at, owners: owners.map(([n, a]) => `${n}\u0000${a}`) });
+// Plain-data items: path given as [name, at] pairs, nearest first.
+const item = (inside, ...path) => ({ inside, path: path.map(([name, at]) => ({ key: `${name}\u0000${at}`, name, at })) });
+const names = (groups) => groups.map((g) => g.name);
 
-test('outermostComponents dedupes by name and source, keeping first-seen order', () => {
-  const out = outermostComponents([entry('A', 'a:1'), entry('B', 'b:1'), entry('A', 'a:1'), entry('A', 'a:2')], [], 10);
-  assert.deepEqual(out, [{ name: 'A', at: 'a:1' }, { name: 'B', at: 'b:1' }, { name: 'A', at: 'a:2' }]);
+test('componentGroups dedupes by name and source, keeping first-seen order', () => {
+  const out = componentGroups([item(true, ['A', 'a:1']), item(true, ['B', 'b:1']), item(true, ['A', 'a:1']), item(true, ['A', 'a:2'])], 10);
+  assert.deepEqual(out.map(({ name, at }) => ({ name, at })), [{ name: 'A', at: 'a:1' }, { name: 'B', at: 'b:1' }, { name: 'A', at: 'a:2' }]);
+  assert.deepEqual(out[0].items, [0, 2]);
 });
 
-test('outermostComponents drops a component whose owner is also inside', () => {
-  const out = outermostComponents([
-    entry('Badge', 'r:40', [['Row', 'p:9'], ['Page', 'x:1']]),
-    entry('Row', 'p:9', [['Page', 'x:1']]),
-    entry('Icon', 'b:3', [['Badge', 'r:40'], ['Row', 'p:9'], ['Page', 'x:1']]),
-    entry('Actions', 'r:88', [['Row2', 'p:10'], ['Page', 'x:1']]),
-  ], [], 10);
-  assert.deepEqual(out, [{ name: 'Row', at: 'p:9' }, { name: 'Actions', at: 'r:88' }]);
+test('componentGroups keeps the outermost and folds nested components into it', () => {
+  const out = componentGroups([
+    item(true, ['Badge', 'r:40'], ['Row', 'p:9']),
+    item(true, ['Row', 'p:9']),
+    item(true, ['Icon', 'b:3'], ['Badge', 'r:40'], ['Row', 'p:9']),
+    item(true, ['Actions', 'r:88'], ['Row2', 'p:10']),
+  ], 10);
+  assert.deepEqual(out, [
+    { name: 'Row', at: 'p:9', items: [0, 1, 2] },
+    { name: 'Row2', at: 'p:10', items: [3] },
+  ]);
 });
 
-test('outermostComponents excludes the containing element\'s owners before keeping the outermost', () => {
-  // The container is rendered by Row: Row is already in `owners`, so its children stand on their own.
-  const out = outermostComponents([
-    entry('Row', 'p:9', [['Page', 'x:1']]),
-    entry('Badge', 'r:40', [['Row', 'p:9'], ['Page', 'x:1']]),
-    entry('Icon', 'b:3', [['Badge', 'r:40'], ['Row', 'p:9'], ['Page', 'x:1']]),
-    entry('Actions', 'r:88', [['Row', 'p:9'], ['Page', 'x:1']]),
-  ], ['Row\u0000p:9', 'Page\u0000x:1'], 10);
-  assert.deepEqual(out, [{ name: 'Badge', at: 'r:40' }, { name: 'Actions', at: 'r:88' }]);
+test('componentGroups lists a component that renders only other components', () => {
+  // Page returns <Layout><Card/></Layout>; only Card renders DOM.
+  const out = componentGroups([item(true, ['Card', 'p:5'], ['Layout', 'p:4'], ['Page', 'a:1'])], 10);
+  assert.deepEqual(names(out), ['Page']);
+  assert.deepEqual(out[0].items, [0]);
 });
 
-test('outermostComponents caps the list', () => {
-  const many = Array.from({ length: 15 }, (_, i) => entry(`C${i}`, null));
+test('componentGroups leaves out a component partly outside, but lists its child wholly inside', () => {
+  const out = componentGroups([
+    item(true, ['Panel', 'p:1']),
+    item(false, ['Panel', 'p:1']),
+    item(true, ['Child', 'x:2'], ['Panel', 'p:1']),
+  ], 10);
+  assert.deepEqual(out, [{ name: 'Child', at: 'x:2', items: [2] }]);
+});
+
+test('componentGroups counts a recursive component once per element', () => {
+  const out = componentGroups([item(true, ['Tree', 't:3'], ['Tree', 't:3'], ['App', 'a:1'])], 10);
+  assert.deepEqual(names(out), ['App']);
+  assert.deepEqual(names(componentGroups([item(true, ['Tree', 't:3'], ['Tree', 't:3'])], 10)), ['Tree']);
+});
+
+test('componentGroups caps the list', () => {
+  const many = Array.from({ length: 15 }, (_, i) => item(true, [`C${i}`, null]));
   assert.equal(PICK_MAX_CONTAINS, 10);
-  assert.deepEqual(outermostComponents(many, [], PICK_MAX_CONTAINS).map((c) => c.name), many.slice(0, 10).map((c) => c.name));
+  assert.deepEqual(names(componentGroups(many, PICK_MAX_CONTAINS)), many.slice(0, 10).map((m) => m.path[0].name));
 });
 
-test('componentsInside reads host fibers and leaves out the container\'s own owner chain', () => {
+const AREA = box(0, 0, 100, 100);
+const IN = box(10, 10, 20, 20);
+const OUT = box(200, 200, 20, 20);
+
+test('componentsInside reads fibers and leaves out the container\'s own owner chain', () => {
   const page = component('Page', src('/a/App.js', 3), null);
   const row = component('Row', src('/a/Page.js', 9), page);
   const badge = component('Badge', src('/a/Row.js', 40), row);
   const icon = component('Icon', src('/a/Badge.js', 3), badge);
   const actions = component('Actions', src('/a/Row.js', 88), row);
   const container = host(row);
-  const out = componentsInside([host(row), host(badge), host(icon), host(badge), host(actions), null], container, PICK_MAX_CONTAINS);
-  assert.deepEqual(out, [{ name: 'Badge', at: '/a/Row.js:40' }, { name: 'Actions', at: '/a/Row.js:88' }]);
+  const els = [host(row), host(badge), host(icon), host(badge), host(actions), null].map((fiber) => ({ fiber, box: IN }));
+  assert.deepEqual(componentsInside(els, container, AREA, PICK_MAX_CONTAINS),
+    [{ name: 'Badge', at: '/a/Row.js:40' }, { name: 'Actions', at: '/a/Row.js:88' }]);
+  // The groups say which elements were folded into each component.
+  assert.deepEqual(componentGroupsInside(els, container, AREA, PICK_MAX_CONTAINS).map((g) => g.items), [[1, 2, 3], [4]]);
+});
+
+test('componentsInside lists a composition-only component wholly inside the area', () => {
+  const app = component('App', src('/a/index.js', 1), null);
+  const page = component('Page', src('/a/App.js', 3), app);
+  const layout = component('Layout', src('/a/Page.js', 4), page);
+  const card = component('Card', src('/a/Page.js', 5), page);
+  const cardHost = { type: 'div', _debugOwner: card };
+  const container = host(app);
+  assert.deepEqual(componentsInside([{ fiber: cardHost, box: IN }], container, AREA, 10).map((c) => c.name), ['Page']);
+  // Layout renders no element of its own, so it is not listed.
+  assert.equal(layout.type.name, 'Layout');
+});
+
+test('componentsInside ignores unrendered elements and counts those outside the area', () => {
+  const app = component('App', src('/a/index.js', 1), null);
+  const panel = component('Panel', src('/a/App.js', 3), app);
+  const child = component('Child', src('/a/Panel.js', 8), panel);
+  const container = host(app);
+  const els = [
+    { fiber: host(panel), box: IN },
+    { fiber: host(panel), box: box(10, 10, 0, 0) }, // hidden: ignored
+    { fiber: host(child), box: IN },
+  ];
+  assert.deepEqual(componentsInside(els, container, AREA, 10).map((c) => c.name), ['Panel']);
+  els.push({ fiber: host(panel), box: OUT });
+  assert.deepEqual(componentsInside(els, container, AREA, 10).map((c) => c.name), ['Child']);
+});
+
+test('a recursive component used where the container\'s owner is used is left out with its inner copies, deliberately', () => {
+  // The container is rendered by Tree at Tree.js:7; an inner Tree used at the same
+  // place has the same name and source, so it reads as the owner already listed.
+  const app = component('App', src('/a/index.js', 1), null);
+  const outer = component('Tree', src('/a/Tree.js', 7), app);
+  const inner = component('Tree', src('/a/Tree.js', 7), outer);
+  const leaf = component('Leaf', src('/a/Tree.js', 9), inner);
+  const container = host(outer);
+  // The inner Tree is not listed; Leaf, a different component inside it, is.
+  assert.deepEqual(componentsInside([{ fiber: host(inner), box: IN }, { fiber: host(leaf), box: IN }], container, AREA, 10),
+    [{ name: 'Leaf', at: '/a/Tree.js:9' }]);
 });
 
 test('capturePick records a drag as mode drag, and a click with no mode', () => {

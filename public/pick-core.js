@@ -182,47 +182,72 @@ export function descendants(root, max) {
 // may hold either of a fiber's two copies (current or alternate).
 const componentKey = (name, at) => `${name}\u0000${at}`;
 
-function ownerKeys(fiber) {
-  const keys = [];
-  for (let o = fiber && fiber._debugOwner, n = 0; o && n < OWNER_DEPTH; o = o._debugOwner, n += 1) {
+// The components above a host fiber, nearest first, as { key, name, at }, up to
+// (not including) the first one in `stop`: those are the containing element's
+// owners, already described. A recursive component used at the same place as one
+// of them has the same key, so it and everything inside it stop there too, on
+// purpose: by name and source it is the component the owners already name.
+export function ownerPath(hostFiber, stop) {
+  const path = [];
+  for (let o = hostFiber && hostFiber._debugOwner, n = 0; o && n < OWNER_DEPTH; o = o._debugOwner, n += 1) {
     const name = componentName(o);
-    if (name) keys.push(componentKey(name, debugAt(o)));
+    if (!name) continue;
+    const at = debugAt(o);
+    const key = componentKey(name, at);
+    if (stop.has(key)) break;
+    path.push({ key, name, at });
   }
-  return keys;
+  return path;
 }
 
-// The component that rendered a host fiber (its nearest owner), where that
-// component is used, and the keys of the components above it; null for none.
-export function componentEntry(hostFiber) {
-  let o = hostFiber && hostFiber._debugOwner;
-  for (let n = 0; o && !componentName(o) && n < OWNER_DEPTH; n += 1) o = o._debugOwner;
-  if (!o || !componentName(o)) return null;
-  return { name: componentName(o), at: debugAt(o), owners: ownerKeys(o) };
-}
-
-// Plain-data entries ({ name, at, owners: keys }) in document order to the
-// outermost distinct components, first-seen order, at most max. `exclude` are
-// the keys already described as the containing element's owners; they go first,
-// so their children can stand as the outermost.
-export function outermostComponents(entries, exclude, max) {
-  const skip = new Set(exclude);
-  const seen = new Map();
-  for (const e of entries) {
-    const key = componentKey(e.name, e.at);
-    if (!skip.has(key) && !seen.has(key)) seen.set(key, e);
-  }
+// Plain data in, the components inside the area out. `items` are the scanned
+// elements in document order, each { inside, path } (path from ownerPath).
+// A component is inside when every scanned element it renders, directly or
+// through other components, is inside; that includes components that render
+// only other components. Of those, only the outermost are kept (first-seen
+// order, at most max), each with the indices of the inside items folded into it.
+export function componentGroups(items, max) {
+  const stats = new Map();
+  items.forEach((item, i) => {
+    const counted = new Set();
+    item.path.forEach((c, depth) => {
+      if (counted.has(c.key)) return; // a recursive component counts once per element
+      counted.add(c.key);
+      let s = stats.get(c.key);
+      if (!s) {
+        s = { name: c.name, at: c.at, owners: item.path.slice(depth + 1).map((o) => o.key), inside: 0, outside: 0, items: [] };
+        stats.set(c.key, s);
+      }
+      if (item.inside) { s.inside += 1; s.items.push(i); } else s.outside += 1;
+    });
+  });
+  const isIn = (k) => { const s = stats.get(k); return !!s && s.inside > 0 && s.outside === 0; };
   const out = [];
-  for (const [key, e] of seen) {
+  for (const [key, s] of stats) {
     if (out.length >= max) break;
     // A recursive component used at the same place is not its own outer component.
-    if (!e.owners.some((k) => k !== key && seen.has(k))) out.push({ name: e.name, at: e.at });
+    if (isIn(key) && !s.owners.some((k) => k !== key && isIn(k))) out.push({ name: s.name, at: s.at, items: s.items });
   }
   return out;
 }
 
-// The outermost components rendering the given host fibers (document order),
-// leaving out the containing element's own owner chain.
-export function componentsInside(hostFibers, containerFiber, max) {
-  const entries = hostFibers.map(componentEntry).filter(Boolean);
-  return outermostComponents(entries, ownerKeys(containerFiber), max);
+// `elements`: the containing element's descendants in document order, each
+// { fiber, box } (fiber: the element's own, or null). Elements with no fiber or
+// no box (not rendered) are ignored. Returns componentGroups' groups, items
+// indexing into `elements`.
+export function componentGroupsInside(elements, containerFiber, rect, max) {
+  const stop = new Set(ownerPath(containerFiber, new Set()).map((c) => c.key));
+  const items = [];
+  const index = [];
+  elements.forEach((e, i) => {
+    if (!e.fiber || !(e.box.width * e.box.height > 0)) return;
+    items.push({ inside: mostlyInside(e.box, rect), path: ownerPath(e.fiber, stop) });
+    index.push(i);
+  });
+  return componentGroups(items, max).map((g) => ({ ...g, items: g.items.map((i) => index[i]) }));
+}
+
+// What a drag sends as `contains`: the groups' names and sources only.
+export function componentsInside(elements, containerFiber, rect, max) {
+  return componentGroupsInside(elements, containerFiber, rect, max).map(({ name, at }) => ({ name, at }));
 }

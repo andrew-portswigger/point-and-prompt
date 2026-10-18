@@ -19,8 +19,10 @@ Requires an Agent Wrangler with host API 1.36.0 or later.
 2. It highlights the element under the mouse. Click an element, or drag a rectangle around an
    area. A click picks that element; a drag picks the smallest element that contains the whole
    area. Either way it reads the React fiber for the element's JSX file:line and the chain of
-   components that rendered it. A drag also lists the components rendered inside the area
-   (outermost first, up to 10): those with an element at least 60% inside it.
+   components that rendered it. A drag also lists the components inside the area (outermost
+   first, up to 10). Components are found from the elements they render: one counts as inside
+   when every element it renders (directly or through other components) is at least 60% inside
+   the area, so a component that renders nothing inside the area isn't listed.
 3. If you shared the tab, it grabs one frame, crops it to the element (with a small margin) or to
    the dragged area, and stops sharing straight away.
 4. It opens your wrangler's board in a pop-up (`/?point-and-prompt=1`) and hands the pick and the

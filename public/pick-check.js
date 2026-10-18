@@ -1,4 +1,4 @@
-import { DEFAULT_ALLOWED_ORIGINS, MAX_BUILD, MAX_CLASSES, MAX_CONTAINS, MAX_HTML, MAX_OWNERS, MAX_SHOT_BYTES, SUPPORTED_PROTOCOLS } from './defaults.js';
+import { DEFAULT_ALLOWED_ORIGINS, MAX_BUILD, MAX_CLASSES, MAX_CONTAINS, MAX_FIELD, MAX_HTML, MAX_OWNERS, MAX_PATH, MAX_SHOT_BYTES, SUPPORTED_PROTOCOLS } from './defaults.js';
 
 // `settings` is api.settings(): our own values, unset keys absent.
 export function allowedOriginsFrom(settings) {
@@ -10,6 +10,9 @@ const isStr = (v) => typeof v === 'string';
 const isStrOrNull = (v) => v === null || isStr(v);
 const PNG_PREFIX = 'data:image/png;base64,';
 const isComponentList = (v, max) => Array.isArray(v) && v.length <= max && v.every((o) => !!o && isStr(o.name) && isStrOrNull(o.at));
+// contains came later, so its strings are capped where the prompt caps them.
+const isShortComponentList = (v) => isComponentList(v, MAX_CONTAINS)
+  && v.every((o) => o.name.length <= MAX_FIELD && (o.at === null || o.at.length <= MAX_PATH));
 const isShot = (v) => isStr(v) && v.startsWith(PNG_PREFIX) && (v.length - PNG_PREFIX.length) * 0.75 <= MAX_SHOT_BYTES;
 
 // Shape and size check of a v1 payload: the pick comes from another site and
@@ -44,7 +47,7 @@ export const normalisePick = {
     // Optional fields added later (OPTIONAL_FIELDS): a malformed one is dropped,
     // so it can't make an otherwise good pick unreadable.
     if (d.mode === 'drag') pick.mode = 'drag';
-    if (isComponentList(d.contains, MAX_CONTAINS)) pick.contains = d.contains.map(({ name, at }) => ({ name, at }));
+    if (isShortComponentList(d.contains)) pick.contains = d.contains.map(({ name, at }) => ({ name, at }));
     return pick;
   },
 };

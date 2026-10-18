@@ -151,10 +151,9 @@ function elementAround(rect) {
 // Runs after stopPicking, before the grab; our own overlays are skipped anyway.
 function componentsIn(container, rect) {
   try {
-    const hosts = descendants(container, PICK_CONTAINS_SCAN)
-      .filter((e) => !overlays.has(e) && mostlyInside(e.getBoundingClientRect(), rect))
-      .map(ownFiber);
-    return componentsInside(hosts, fiberOf(container), PICK_MAX_CONTAINS);
+    const els = descendants(container, PICK_CONTAINS_SCAN).filter((e) => !overlays.has(e))
+      .map((e) => ({ fiber: ownFiber(e), box: e.getBoundingClientRect() }));
+    return componentsInside(els, fiberOf(container), rect, PICK_MAX_CONTAINS);
   } catch {
     return [];
   }

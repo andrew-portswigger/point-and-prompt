@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import crypto from 'node:crypto';
 import { allowedOriginsFrom, isAcceptedPick, isWellFormedPick, normalisePick, readPick } from '../public/pick-check.js';
-import { DEFAULT_ALLOWED_ORIGINS, MAX_CLASSES, MAX_CONTAINS, MAX_HTML, MAX_OWNERS, MAX_SHOT_BYTES, OPTIONAL_FIELDS, SUPPORTED_PROTOCOLS } from '../public/defaults.js';
+import { DEFAULT_ALLOWED_ORIGINS, MAX_CLASSES, MAX_CONTAINS, MAX_FIELD, MAX_PATH, MAX_HTML, MAX_OWNERS, MAX_SHOT_BYTES, OPTIONAL_FIELDS, SUPPORTED_PROTOCOLS } from '../public/defaults.js';
 import { buildIntent } from '../public/prompt.js';
 
 const fixture = (protocol) => JSON.parse(fs.readFileSync(new URL(`./fixtures/pick-v${protocol}.json`, import.meta.url), 'utf8'));
@@ -185,7 +185,7 @@ test('the golden click payload normalises without mode or contains', () => {
 test('normalisePick[1] keeps a well-formed contains', () => {
   const contains = [{ name: 'A', at: 'a.jsx:1' }, { name: 'B', at: null }];
   assert.deepEqual(normalisePick[1]({ ...goodPick, mode: 'drag', contains }).contains, contains);
-  const full = Array(MAX_CONTAINS).fill({ name: 'A', at: null });
+  const full = Array(MAX_CONTAINS).fill({ name: 'N'.repeat(MAX_FIELD), at: 'p'.repeat(MAX_PATH) });
   assert.equal(normalisePick[1]({ ...goodPick, contains: full }).contains.length, MAX_CONTAINS);
   // Only the known keys are kept.
   assert.deepEqual(normalisePick[1]({ ...goodPick, contains: [{ name: 'A', at: null, x: 1 }] }).contains, [{ name: 'A', at: null }]);
@@ -193,7 +193,9 @@ test('normalisePick[1] keeps a well-formed contains', () => {
 
 test('a malformed contains or mode is dropped, and the pick is still accepted', () => {
   const allowed = ['http://localhost:3333'];
-  for (const contains of ['x', null, {}, [{ name: 1, at: null }], [{ name: 'A' }], [null], Array(MAX_CONTAINS + 1).fill({ name: 'A', at: null })]) {
+  const ok1 = { name: 'A', at: null };
+  for (const contains of ['x', null, {}, [{ name: 1, at: null }], [{ name: 'A' }], [null], Array(MAX_CONTAINS + 1).fill(ok1),
+    [ok1, { name: 'N'.repeat(MAX_FIELD + 1), at: null }], [ok1, { name: 'A', at: 'p'.repeat(MAX_PATH + 1) }]]) {
     const read = readPick({ ...ok, data: { ...goodPick, contains } }, allowed, opener);
     assert.ok(read?.pick, JSON.stringify(contains));
     assert.equal('contains' in read.pick, false);
