@@ -66,8 +66,7 @@ export function settingsPanel({ fetchText = defaultFetchText, origin } = {}) {
     steps.style.paddingLeft = '20px';
     for (const text of [
       'Drag the button below to your bookmarks bar.',
-      'On the enterprise app, allow pop-ups for the site.',
-      'Run the web app as a dev build with JSX source info: webpack\'s development mode with @babel/preset-react { development: true }.',
+      'On DAST, allow pop-ups for the site.',
     ]) steps.append(make('li', text, 'setting-help'));
     el.append(steps);
 
@@ -94,7 +93,7 @@ export function settingsPanel({ fetchText = defaultFetchText, origin } = {}) {
     });
 
     el.append(make('div', 'How to use', 'setting-label'));
-    const howTo = make('div', 'On the enterprise app, click the bookmark. Share the tab for a screenshot (or Cancel for none), then click an element or drag around an area. Finish in the new-session dialog that opens on this board.', 'setting-help');
+    const howTo = make('div', 'On DAST, click the bookmark. Share the tab for a screenshot (or Cancel for none), then click an element or drag around an area. Finish in the new-session dialog that opens on this board.', 'setting-help');
     howTo.style.marginBottom = '12px';
     el.append(howTo);
 

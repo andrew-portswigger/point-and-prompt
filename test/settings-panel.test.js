@@ -34,10 +34,10 @@ test('renders the setup steps, how-to and both settings', () => {
   const { el, repo, origins, contribution } = setup();
   assert.equal(contribution.id, 'ui-picker');
   const steps = el.byTag('ol')[0].byTag('li').map((li) => li.textContent);
-  assert.equal(steps.length, 3);
+  assert.equal(steps.length, 2);
   assert.match(steps[0], /Drag the button below to your bookmarks bar/);
-  assert.match(steps[1], /allow pop-ups/i);
-  assert.match(steps[2], /@babel\/preset-react/);
+  assert.match(steps[1], /On DAST, allow pop-ups/);
+  assert.doesNotMatch(el.textContent, /webpack|babel|enterprise app/i);
   assert.match(el.textContent, /How to use/);
   assert.match(el.textContent, /Share the tab/);
   assert.match(el.textContent, /Repository path/);

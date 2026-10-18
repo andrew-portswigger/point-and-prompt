@@ -1,7 +1,7 @@
 # UI Picker
 
 An [Agent Wrangler](https://github.com/topics/agent-wrangler-extension) extension. Point at a
-component in the enterprise web app and start a wrangler session about it from the board's normal
+component in the DAST web app and start a wrangler session about it from the board's normal
 new-session dialog, with the pick details and a screenshot already filled in.
 
 Requires an Agent Wrangler with host API 1.36.0 or later.
@@ -17,10 +17,10 @@ Requires an Agent Wrangler with host API 1.36.0 or later.
 3. If you shared the tab, it grabs one frame, crops it to the element (with a small margin) or to
    the dragged area, and stops sharing straight away.
 4. It opens your wrangler's board in a pop-up (`/?ui-picker=1`) and hands the pick and the
-   screenshot to it with `postMessage`. The enterprise page never talks to the wrangler directly,
+   screenshot to it with `postMessage`. The DAST page never talks to the wrangler directly,
    so no CORS or origin settings change.
 5. The extension's client module, running in that board, uploads the screenshot and opens the
-   board's own new-session dialog: the folder is the enterprise repo, the prompt holds the pick
+   board's own new-session dialog: the folder is the DAST repo, the prompt holds the pick
    details below an empty first line, and the screenshot is attached as an image. Type your note
    on the first line, pick the model, effort, worktree and task as for any session, and launch.
    The agent sees the screenshot directly. The pop-up closes once you launch or cancel.
@@ -32,14 +32,12 @@ Requires an Agent Wrangler with host API 1.36.0 or later.
 2. Open **Settings → Extensions → UI Picker** and follow the steps there: drag **UI Picker** to
    your bookmarks bar. The bookmarklet is tied to that wrangler's address, so reinstall it if the
    wrangler moves.
-3. The enterprise web app must be built with the dev JSX transform so components carry their
-   source location: `libraries/web-app/webpack.config.js` passes
-   `@babel/preset-react` `{ development: argv.mode === 'development' }`. Without it the picker
-   still works, but sessions get component names only, no file:line.
+3. Source file:line needs a DAST dev build (development mode), which enables it by default;
+   production builds give component names only.
 
 ## Use
 
-On the enterprise app (default `http://localhost:3333` or `:1234`), click the bookmark.
+On DAST (default `http://localhost:3333` or `:1234`), click the bookmark.
 
 1. Chrome asks to share this tab. Choose **Share** to attach a screenshot, or **Cancel** to pick
    without one. Chrome asks every time: a web page can't skip that prompt.

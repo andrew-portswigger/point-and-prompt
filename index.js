@@ -1,7 +1,7 @@
 export default {
   id: 'ui-picker',
   label: 'UI Picker',
-  description: 'Pick a component in the enterprise web app and start a session about it.',
+  description: 'Pick a component in the DAST web app and start a session about it.',
   help: 'Setup steps, the bookmarklet and the settings are in this section. Save applies the settings.',
   author: 'Andrew Whitehead',
   defaultEnabled: true,
