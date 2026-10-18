@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { fiberOf, debugAt, ownerChain, describeElement, capturePick, buildPayload, chooseProtocol, protocolsOf, containingElement, padRect, dragRect, shotFits, mostlyInside, descendants, ownerPath, componentGroups, componentGroupsInside, componentsInside, PAYLOAD_BUILDERS, PICK_CONTAINS_OVERLAP, PICK_MAX_CONTAINS, PICK_MAX_SHOT_BYTES, PICK_PROTOCOL, PICK_PROTOCOLS } from '../public/pick-core.js';
+import { fiberOf, debugAt, ownerChain, describeElement, capturePick, buildPayload, chooseProtocol, protocolsOf, containingElement, padRect, dragRect, shotFits, mostlyInside, descendants, ownerPath, componentGroups, componentGroupsInside, componentsInside, unionBox, clipBox, highlightBoxes, PAYLOAD_BUILDERS, PICK_CONTAINS_OVERLAP, PICK_MAX_CONTAINS, PICK_MAX_SHOT_BYTES, PICK_PROTOCOL, PICK_PROTOCOLS } from '../public/pick-core.js';
 import { OPTIONAL_FIELDS } from '../public/defaults.js';
 import { shape } from './shape.js';
 
@@ -369,4 +369,32 @@ test('capturePick records a drag as mode drag, and a click with no mode', () => 
   const opts = { url: 'http://h/', rect: { x: 0, y: 0, width: 1, height: 1 }, dpr: 1, build: 'b' };
   assert.equal(capturePick(el({}), { ...opts, drag: true }).mode, 'drag');
   assert.equal('mode' in capturePick(el({}), opts), false);
+});
+
+test('unionBox spans every box, or is null for none', () => {
+  assert.deepEqual(unionBox([box(10, 20, 30, 40), box(0, 50, 5, 5)]), box(0, 20, 40, 40));
+  assert.deepEqual(unionBox([box(1, 2, 3, 4)]), box(1, 2, 3, 4));
+  assert.equal(unionBox([]), null);
+});
+
+test('clipBox clips to the viewport, or is null when nothing is left', () => {
+  const vp = { width: 800, height: 600 };
+  assert.deepEqual(clipBox(box(-10, -20, 50, 50), vp), box(0, 0, 40, 30));
+  assert.deepEqual(clipBox(box(780, 590, 50, 50), vp), box(780, 590, 20, 10));
+  assert.equal(clipBox(box(900, 0, 10, 10), vp), null);
+  assert.equal(clipBox(box(10, 10, 0, 10), vp), null);
+});
+
+test('highlightBoxes gives each group the union of its elements\' boxes, clipped', () => {
+  const vp = { width: 800, height: 600 };
+  const boxes = [box(0, 0, 10, 10), box(100, 100, 20, 20), box(150, 90, 10, 10), box(790, 10, 50, 10), box(900, 900, 5, 5)];
+  const groups = [
+    { name: 'A', at: null, items: [1, 2] },
+    { name: 'B', at: 'b:1', items: [3] },
+    { name: 'Gone', at: null, items: [4] },
+  ];
+  assert.deepEqual(highlightBoxes(groups, boxes, vp), [
+    { name: 'A', box: box(100, 90, 60, 30) },
+    { name: 'B', box: box(790, 10, 10, 10) },
+  ]);
 });

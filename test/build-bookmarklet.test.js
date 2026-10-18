@@ -74,7 +74,7 @@ const comp = (name, fileName, lineNumber, owner = null) => ({
 const hostFiber = (owner) => ({ type: 'div', _debugOwner: owner });
 
 // capture: 'reject' (user cancelled), 'resolve' (sharing), 'pending' (prompt still open).
-async function setup({ capture = 'reject', png = PNG, grab = 'ok', surface = 'browser', frame = { width: 2000, height: 1600 }, react = false } = {}) {
+async function setup({ capture = 'reject', png = PNG, grab = 'ok', surface = 'browser', frame = { width: 2000, height: 1600 }, react = false, performance = globalThis.performance } = {}) {
   const listeners = [];
   const timers = [];
   const opened = [];
@@ -82,6 +82,7 @@ async function setup({ capture = 'reject', png = PNG, grab = 'ok', surface = 'br
   const banners = [];
   const live = new Set();
   const drawn = [];
+  const atGrab = []; // the page's overlays when each frame is grabbed
   const track = {
     stopped: 0,
     stop() { this.stopped++; },
@@ -106,6 +107,7 @@ async function setup({ capture = 'reject', png = PNG, grab = 'ok', surface = 'br
   class ImageCapture {
     constructor(t) { assert.equal(t, track); }
     grabFrame() {
+      atGrab.push([...live]);
       if (grab === 'throw') return Promise.reject(new Error('InvalidStateError'));
       return Promise.resolve({ ...frame, close() {} });
     }
@@ -118,7 +120,8 @@ async function setup({ capture = 'reject', png = PNG, grab = 'ok', surface = 'br
     }
     const el = {
       style: { cssText: '' },
-      set textContent(v) { banners.push(v); },
+      // Live-drag name tags (11px) are not banners.
+      set textContent(v) { el.text = v; if (!/font:11px/.test(el.style.cssText)) banners.push(v); },
       remove() { live.delete(el); },
     };
     return el;
@@ -158,9 +161,9 @@ async function setup({ capture = 'reject', png = PNG, grab = 'ok', surface = 'br
   const requestAnimationFrame = (f) => queueMicrotask(f);
   const src = decodeURIComponent(buildBookmarklet(read('pick-core.js'), read('bookmarklet-main.js'), ORIGIN).slice('javascript:'.length));
   new Function('window', 'document', 'addEventListener', 'removeEventListener', 'location', 'devicePixelRatio', 'setTimeout',
-    'navigator', 'ImageCapture', 'requestAnimationFrame', 'innerWidth', 'innerHeight', src)(
+    'navigator', 'ImageCapture', 'requestAnimationFrame', 'innerWidth', 'innerHeight', 'performance', src)(
     win, document, addEventListener, removeEventListener, { href: 'http://app/' }, 2, setTimeout,
-    navigator, ImageCapture, requestAnimationFrame, 1000, 800);
+    navigator, ImageCapture, requestAnimationFrame, 1000, 800, performance);
   if (capture !== 'pending') await flush();
   const fire = (type, ev) => [...listeners].filter(([t]) => t === type).forEach(([, f]) => f(ev));
   const ev = (o = {}) => ({ target, button: 0, clientX: 110, clientY: 105, preventDefault() {}, stopPropagation() {}, ...o });
@@ -170,7 +173,7 @@ async function setup({ capture = 'reject', png = PNG, grab = 'ok', surface = 'br
   // protocols: the list the board advertises, or undefined for a ready without the field.
   const ready = (protocols = [1], build) => fire('message', { source: win.popup, data: { type: 'point-and-prompt:ready', ...(protocols ? { protocols } : {}), ...(build ? { build } : {}) } });
   return {
-    win, listeners, timers, opened, posted, banners, live, drawn, track, gdmCalls, document, target, parent, body,
+    win, listeners, timers, opened, posted, banners, live, drawn, atGrab, track, gdmCalls, document, target, parent, body,
     fire, ev, click, ready, settle: async () => { settle(); await flush(); }, setUnderPoint: (el) => { underPoint = el; },
   };
 }
@@ -618,4 +621,124 @@ test('a page that throws while being scanned still gets its pick, without contai
   assert.equal(t.posted.length, 1);
   assert.equal(t.posted[0][0].element.tag, 'section');
   assert.equal('contains' in t.posted[0][0], false);
+});
+
+// The live drag view's elements on the page: component outlines, their name
+// tags and the containing element's outline, all just under the selection.
+const HL = /z-index:2147483646/;
+const shown = (el) => el.style.display !== 'none';
+const highlights = (t) => [...t.live].filter((el) => HL.test(el.style.cssText));
+const outlines = (t) => highlights(t).filter((el) => shown(el) && /outline:1px solid/.test(el.style.cssText));
+const tags = (t) => highlights(t).filter((el) => shown(el) && /font:11px/.test(el.style.cssText)).map((el) => el.text);
+const frames = (t) => highlights(t).filter((el) => shown(el) && /outline:1px dashed/.test(el.style.cssText));
+
+const startDrag = (t, x, y) => {
+  t.fire('pointerdown', t.ev({ clientX: 90, clientY: 90 }));
+  t.fire('pointermove', t.ev({ clientX: x, clientY: y }));
+};
+
+test('while dragging, faint outlines show the components that will be listed, and the container', async () => {
+  const t = await setup({ capture: 'resolve', react: true });
+  startDrag(t, 260, 125);
+  await flush();
+  assert.deepEqual(tags(t), ['ScanActions', 'ScanStatusBadge']);
+  assert.equal(outlines(t).length, 2);
+  assert.equal(frames(t).length, 1, 'the containing element');
+  // The button's box (100,100 50x20) is ScanActions' outline.
+  const [first] = outlines(t);
+  assert.deepEqual([first.style.left, first.style.top, first.style.width, first.style.height], ['100px', '100px', '50px', '20px']);
+  // The selection rectangle stays above the highlight.
+  assert.ok(highlights(t).every((el) => !/2147483647/.test(el.style.cssText)));
+});
+
+test('the live outlines follow the rectangle and agree with the pick', async () => {
+  const t = await setup({ capture: 'resolve', react: true });
+  startDrag(t, 260, 125);
+  await flush();
+  const pooled = highlights(t).length;
+  t.fire('pointermove', t.ev({ clientX: 160, clientY: 125 }));
+  await flush();
+  assert.deepEqual(tags(t), ['ScanActions'], 'the badge is now outside the area');
+  assert.equal(outlines(t).length, 1);
+  assert.equal(highlights(t).length, pooled, 'elements are reused, not recreated');
+  t.fire('pointerup', t.ev({ clientX: 160, clientY: 125 }));
+  t.ready();
+  await flush();
+  assert.deepEqual(t.posted[0][0].contains.map((c) => c.name), ['ScanActions']);
+});
+
+test('moves within one frame draw once', async () => {
+  let frames = 0;
+  const t = await setup({ capture: 'resolve', react: true });
+  const orig = t.document.elementFromPoint;
+  t.document.elementFromPoint = (...a) => { frames += 1; return orig(...a); };
+  startDrag(t, 200, 125);
+  t.fire('pointermove', t.ev({ clientX: 230, clientY: 125 }));
+  t.fire('pointermove', t.ev({ clientX: 260, clientY: 125 }));
+  await flush();
+  assert.equal(frames, 1);
+  assert.deepEqual(tags(t), ['ScanActions', 'ScanStatusBadge'], 'drawn for the latest rectangle');
+});
+
+test('the highlight is gone before the frame is grabbed, and after the pick', async () => {
+  const t = await setup({ capture: 'resolve', react: true });
+  startDrag(t, 260, 125);
+  await flush();
+  assert.ok(highlights(t).length > 0);
+  t.fire('pointerup', t.ev({ clientX: 260, clientY: 125 }));
+  assert.equal(highlights(t).length, 0, 'removed on pointerup');
+  t.ready();
+  await flush();
+  assert.equal(t.atGrab.length, 1);
+  assert.equal(t.atGrab[0].filter((el) => HL.test(el.style.cssText)).length, 0);
+  assert.equal(t.posted.length, 1);
+});
+
+test('Esc and a cancelled pointer remove the highlight', async () => {
+  for (const exit of [(t) => t.fire('keydown', t.ev({ key: 'Escape' })), (t) => t.fire('pointercancel', t.ev())]) {
+    const t = await setup({ capture: 'resolve', react: true });
+    startDrag(t, 260, 125);
+    await flush();
+    assert.ok(highlights(t).length > 0);
+    exit(t);
+    await flush();
+    assert.equal(highlights(t).length, 0);
+  }
+});
+
+test('a slow frame keeps the selection but skips the component outlines', async () => {
+  let now = 0;
+  const t = await setup({ capture: 'resolve', react: true, performance: { now: () => (now += 20) } });
+  startDrag(t, 260, 125);
+  await flush();
+  assert.equal(outlines(t).length, 0);
+  assert.deepEqual(tags(t), []);
+});
+
+test('a page that throws during the live view draws no outlines and keeps dragging', async () => {
+  const t = await setup({ capture: 'resolve', react: true });
+  Object.defineProperty(t.parent, 'children', { get() { throw new Error('boom'); } });
+  startDrag(t, 260, 125);
+  await flush();
+  assert.equal(outlines(t).length, 0);
+  t.fire('pointerup', t.ev({ clientX: 260, clientY: 125 }));
+  t.ready();
+  await flush();
+  assert.equal(t.posted.length, 1);
+});
+
+test('element boxes are measured once per drag, and again after a scroll', async () => {
+  const t = await setup({ capture: 'resolve', react: true });
+  let measured = 0;
+  const orig = t.target.getBoundingClientRect;
+  t.target.getBoundingClientRect = () => { measured += 1; return orig(); };
+  startDrag(t, 200, 125);
+  await flush();
+  t.fire('pointermove', t.ev({ clientX: 260, clientY: 125 }));
+  await flush();
+  assert.equal(measured, 1);
+  t.fire('scroll', {});
+  t.fire('pointermove', t.ev({ clientX: 250, clientY: 125 }));
+  await flush();
+  assert.equal(measured, 2);
 });

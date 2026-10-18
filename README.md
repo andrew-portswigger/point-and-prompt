@@ -23,6 +23,8 @@ Requires an Agent Wrangler with host API 1.36.0 or later.
    first, up to 10). Components are found from the elements they render: one counts as inside
    when every element it renders (directly or through other components) is at least 60% inside
    the area, so a component that renders nothing inside the area isn't listed.
+   While you drag, faint outlines with name tags show the components that will be listed, and a
+   fainter dashed one shows the element that contains the area.
 3. If you shared the tab, it grabs one frame, crops it to the element (with a small margin) or to
    the dragged area, and stops sharing straight away.
 4. It opens your wrangler's board in a pop-up (`/?point-and-prompt=1`) and hands the pick and the

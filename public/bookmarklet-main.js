@@ -9,6 +9,8 @@ const DRAG_PX = 4;
 // The board boots (socket, graph, extension modules) before it can say ready.
 const READY_MS = 30000;
 const CLICK_PAD = 8;
+// A live drag view slower than one frame skips the component outlines.
+const LIVE_BUDGET_MS = 16;
 // A board that predates protocol negotiation speaks protocol 1 only.
 const LEGACY_PROTOCOLS = [1];
 const STALE = 'Point & Prompt: a newer bookmarklet is available. Re-drag it from Settings → Extensions → Point & Prompt.';
@@ -60,6 +62,12 @@ function removeOverlays() { for (const el of [...overlays]) dismiss(el); }
 const banners = new Set();
 function dismissBanners() { for (const b of [...banners]) dismiss(b); }
 
+// The live drag view sits just under the selection rectangle.
+const LIVE_CSS = 'position:fixed;pointer-events:none;z-index:2147483646;';
+const OUTLINE_CSS = LIVE_CSS + 'outline:1px solid rgba(229,72,77,.45);background:rgba(229,72,77,.06)';
+const FRAME_CSS = LIVE_CSS + 'outline:1px dashed rgba(229,72,77,.3)';
+const TAG_CSS = LIVE_CSS + 'font:11px/1.4 system-ui;color:#fff;background:rgba(17,17,17,.75);padding:0 4px;border-radius:3px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
+
 const box = overlay('position:fixed;pointer-events:none;outline:2px solid #e5484d;background:rgba(229,72,77,.12);z-index:2147483647;transition:all 40ms');
 const sel = overlay('position:fixed;pointer-events:none;outline:2px dashed #e5484d;background:rgba(229,72,77,.12);z-index:2147483647');
 
@@ -88,8 +96,10 @@ function stopPicking() {
   removeEventListener('pointerup', up, true);
   removeEventListener('pointercancel', cancel, true);
   removeEventListener('keydown', key, true);
+  removeEventListener('scroll', scrolled, true);
   dismiss(box);
   dismiss(sel);
+  clearLive();
 }
 
 function release() {
@@ -128,14 +138,93 @@ function drag(e) {
     box.style.display = 'none';
     document.documentElement.appendChild(sel);
   }
-  if (press.dragging) place(sel, dragRect(press, { x: e.clientX, y: e.clientY }));
+  if (press.dragging) {
+    const r = dragRect(press, { x: e.clientX, y: e.clientY });
+    place(sel, r);
+    queueLive(r);
+  }
 }
 
 function cancel() {
   if (!press) return;
   press = null;
   sel.remove();
+  clearLive();
   box.style.display = '';
+}
+
+// Element boxes, measured once per drag: per frame, the live view is overlap
+// maths, not thousands of layout reads. Scrolling moves everything, so it clears them.
+let boxes = new Map();
+function boxOf(el) {
+  let b = boxes.get(el);
+  if (!b) {
+    const r = el.getBoundingClientRect();
+    b = { x: r.x, y: r.y, width: r.width, height: r.height };
+    boxes.set(el, b);
+  }
+  return b;
+}
+function scrolled() {
+  boxes = new Map();
+  if (press && press.dragging && liveRect) queueLive(liveRect);
+}
+
+// The live drag view: what a drag released now would list. It uses the pick's
+// own scan, so the two agree. Its elements are pooled across frames.
+let liveRect = null;
+let liveQueued = false;
+let frame = null; // the containing element's outline
+const marks = []; // { outline, tag } per component, reused
+function liveMark(css) {
+  const el = overlay(css);
+  document.documentElement.appendChild(el);
+  return el;
+}
+const hide = (el) => { el.style.display = 'none'; };
+function queueLive(r) {
+  liveRect = r;
+  if (liveQueued) return;
+  liveQueued = true;
+  requestAnimationFrame(drawLive);
+}
+function drawLive() {
+  liveQueued = false;
+  if (!press || !press.dragging || !liveRect) return;
+  let drawn = 0;
+  try {
+    const start = performance.now();
+    const viewport = { width: innerWidth, height: innerHeight };
+    const container = elementAround(liveRect);
+    const c = clipBox(boxOf(container), viewport);
+    if (c) {
+      frame = frame || liveMark(FRAME_CSS);
+      place(frame, c);
+      frame.style.display = '';
+    } else if (frame) hide(frame);
+    const { els, groups } = scanArea(container, liveRect);
+    if (performance.now() - start <= LIVE_BUDGET_MS) {
+      for (const { name, box: b } of highlightBoxes(groups, els.map(boxOf), viewport)) {
+        const m = marks[drawn] || (marks[drawn] = { outline: liveMark(OUTLINE_CSS), tag: liveMark(TAG_CSS) });
+        place(m.outline, b);
+        Object.assign(m.tag.style, { left: b.x + 'px', top: Math.max(0, b.y - 16) + 'px', display: '' });
+        m.tag.textContent = name;
+        m.outline.style.display = '';
+        drawn += 1;
+      }
+    }
+  } catch {
+    drawn = 0;
+  }
+  for (let i = drawn; i < marks.length; i += 1) { hide(marks[i].outline); hide(marks[i].tag); }
+}
+function clearLive() {
+  for (const m of marks) { dismiss(m.outline); dismiss(m.tag); }
+  marks.length = 0;
+  if (frame) dismiss(frame);
+  frame = null;
+  liveRect = null;
+  boxes = new Map();
 }
 
 // The smallest element containing the whole area, starting under its centre.
@@ -143,7 +232,7 @@ function cancel() {
 function elementAround(rect) {
   let start = document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2);
   if (overlays.has(start)) start = null;
-  return containingElement(start, rect, (el) => el.getBoundingClientRect(), document.body);
+  return containingElement(start, rect, boxOf, document.body);
 }
 
 // The components rendered inside a dragged area, outermost first, or [] when
@@ -151,12 +240,18 @@ function elementAround(rect) {
 // Runs after stopPicking, before the grab; our own overlays are skipped anyway.
 function componentsIn(container, rect) {
   try {
-    const els = descendants(container, PICK_CONTAINS_SCAN).filter((e) => !overlays.has(e))
-      .map((e) => ({ fiber: ownFiber(e), box: e.getBoundingClientRect() }));
-    return componentsInside(els, fiberOf(container), rect, PICK_MAX_CONTAINS);
+    return scanArea(container, rect).groups.map(({ name, at }) => ({ name, at }));
   } catch {
     return [];
   }
+}
+
+// The container's descendants (ours excluded) and the components inside rect,
+// each with the indices of the elements folded into it.
+function scanArea(container, rect) {
+  const els = descendants(container, PICK_CONTAINS_SCAN).filter((e) => !overlays.has(e));
+  const groups = componentGroupsInside(els.map((e) => ({ fiber: ownFiber(e), box: boxOf(e) })), fiberOf(container), rect, PICK_MAX_CONTAINS);
+  return { els, groups };
 }
 
 const nextFrames = () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
@@ -200,6 +295,8 @@ function up(e) {
     ? padRect(dragRect(press, { x: e.clientX, y: e.clientY }), 0, viewport)
     : padRect(target.getBoundingClientRect(), CLICK_PAD, viewport);
   const el = dragging ? elementAround(rect) : target;
+  // With the drag's measured boxes, as the live view had them; stopPicking clears them.
+  const inside = dragging ? componentsIn(el, rect) : null;
   press = null;
   stopPicking();
   // The click follows pointerup in the same burst of events, so drop the
@@ -207,7 +304,7 @@ function up(e) {
   setTimeout(release, 0);
   // Read the page now; the payload is built once the board has chosen a protocol.
   const raw = capturePick(el, { url: location.href, rect, dpr: devicePixelRatio, build: BUILD, drag: dragging });
-  if (dragging) raw.contains = componentsIn(el, rect);
+  if (inside) raw.contains = inside;
   // Open the popup before any await, while the press still counts as activation.
   // A fresh window name per pick: a reused name would keep the first tab as opener.
   const name = 'point-and-prompt-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
@@ -276,6 +373,7 @@ function arm(text) {
   addEventListener('pointermove', drag, true);
   addEventListener('pointerup', up, true);
   addEventListener('pointercancel', cancel, true);
+  addEventListener('scroll', scrolled, true);
   for (const t of SWALLOWED) addEventListener(t, swallow, true);
   banner(text);
 }

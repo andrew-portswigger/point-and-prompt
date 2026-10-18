@@ -251,3 +251,35 @@ export function componentGroupsInside(elements, containerFiber, rect, max) {
 export function componentsInside(elements, containerFiber, rect, max) {
   return componentGroupsInside(elements, containerFiber, rect, max).map(({ name, at }) => ({ name, at }));
 }
+
+// The smallest box around all of boxes, or null for none.
+export function unionBox(boxes) {
+  if (!boxes.length) return null;
+  const x = Math.min(...boxes.map((b) => b.x));
+  const y = Math.min(...boxes.map((b) => b.y));
+  const right = Math.max(...boxes.map((b) => b.x + b.width));
+  const bottom = Math.max(...boxes.map((b) => b.y + b.height));
+  return { x, y, width: right - x, height: bottom - y };
+}
+
+// The part of box inside the viewport, or null when none of it is.
+export function clipBox(box, viewport) {
+  const x = Math.max(0, box.x);
+  const y = Math.max(0, box.y);
+  const width = Math.min(viewport.width, box.x + box.width) - x;
+  const height = Math.min(viewport.height, box.y + box.height) - y;
+  return width > 0 && height > 0 ? { x, y, width, height } : null;
+}
+
+// What the live drag view outlines: per group (componentGroups), the union of
+// the boxes of the elements folded into it, clipped to the viewport. Groups
+// with nothing on screen are left out.
+export function highlightBoxes(groups, boxes, viewport) {
+  const out = [];
+  for (const g of groups) {
+    const u = unionBox(g.items.map((i) => boxes[i]));
+    const clipped = u && clipBox(u, viewport);
+    if (clipped) out.push({ name: g.name, box: clipped });
+  }
+  return out;
+}
