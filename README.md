@@ -10,7 +10,7 @@ are `http://localhost:3333` and `http://localhost:1234`. Change both in the sett
 app. Source file:line needs a React 17 or 18 development build; otherwise picks name the
 components only.
 
-Requires an Agent Wrangler with host API 1.36.0 or later.
+Requires an Agent Wrangler with host API 1.36.0 or later, and Chrome. Firefox can share a window or screen but not a single tab, so screenshots (and dragging, which needs one) only work in Chrome.
 
 ## How it works
 
