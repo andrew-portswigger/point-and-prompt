@@ -178,16 +178,30 @@ export function descendants(root, max) {
   return out;
 }
 
-// Components are compared by name and source rather than by fiber: a DOM node
-// may hold either of a fiber's two copies (current or alternate).
+// A component is known by its name and source (`key`) when listed, but counted
+// per instance (`id`): rows from one .map() share a key, yet each row is inside
+// or outside the area on its own. A fiber and its `alternate` (React's two
+// copies of one instance; a DOM node may hold either) get the same id.
 const componentKey = (name, at) => `${name}\u0000${at}`;
+const NO_STOP = new Set();
 
-// The components above a host fiber, nearest first, as { key, name, at }, up to
-// (not including) the first one in `stop`: those are the containing element's
-// owners, already described. A recursive component used at the same place as one
-// of them has the same key, so it and everything inside it stop there too, on
-// purpose: by name and source it is the component the owners already name.
-export function ownerPath(hostFiber, stop) {
+export function instanceId(fiber, ids) {
+  let id = ids.get(fiber) || (fiber.alternate && ids.get(fiber.alternate));
+  if (!id) {
+    id = {};
+    ids.set(fiber, id);
+    if (fiber.alternate) ids.set(fiber.alternate, id);
+  }
+  return id;
+}
+
+// The components above a host fiber, nearest first, as { key, name, at, id },
+// up to (not including) the first whose key is in `stop`: those are the
+// containing element's owners, already described. A recursive component used
+// at the same place as one of them has the same key, so it and everything
+// inside it stop there too, on purpose: by name and source it is the component
+// the owners already name.
+export function ownerPath(hostFiber, stop = NO_STOP, ids = new WeakMap()) {
   const path = [];
   for (let o = hostFiber && hostFiber._debugOwner, n = 0; o && n < OWNER_DEPTH; o = o._debugOwner, n += 1) {
     const name = componentName(o);
@@ -195,61 +209,75 @@ export function ownerPath(hostFiber, stop) {
     const at = debugAt(o);
     const key = componentKey(name, at);
     if (stop.has(key)) break;
-    path.push({ key, name, at });
+    path.push({ key, name, at, id: instanceId(o, ids) });
   }
   return path;
 }
 
-// Plain data in, the components inside the area out. `items` are the scanned
-// elements in document order, each { inside, path } (path from ownerPath).
-// A component is inside when every scanned element it renders, directly or
-// through other components, is inside; that includes components that render
-// only other components. Of those, only the outermost are kept (first-seen
-// order, at most max), each with the indices of the inside items folded into it.
-export function componentGroups(items, max) {
+// A full ownerPath cut at the first key in stop.
+export function cutPath(path, stop) {
+  const i = path.findIndex((c) => stop.has(c.key));
+  return i < 0 ? path : path.slice(0, i);
+}
+
+// Plain data in, the component instances inside the area out. `items` are the
+// scanned elements in document order, each { inside, path } (path from
+// ownerPath). An instance is inside when every scanned element it renders,
+// directly or through other components, is inside; that includes components
+// that render only other components. Of those, only the outermost are kept, in
+// first-seen order, each with the indices of the inside items folded into it.
+export function componentGroups(items) {
   const stats = new Map();
   items.forEach((item, i) => {
-    const counted = new Set();
     item.path.forEach((c, depth) => {
-      if (counted.has(c.key)) return; // a recursive component counts once per element
-      counted.add(c.key);
-      let s = stats.get(c.key);
+      let s = stats.get(c.id);
       if (!s) {
-        s = { name: c.name, at: c.at, owners: item.path.slice(depth + 1).map((o) => o.key), inside: 0, outside: 0, items: [] };
-        stats.set(c.key, s);
+        s = { key: c.key, name: c.name, at: c.at, owners: item.path.slice(depth + 1).map((o) => o.id), inside: 0, outside: 0, items: [] };
+        stats.set(c.id, s);
       }
       if (item.inside) { s.inside += 1; s.items.push(i); } else s.outside += 1;
     });
   });
-  const isIn = (k) => { const s = stats.get(k); return !!s && s.inside > 0 && s.outside === 0; };
+  const isIn = (id) => { const s = stats.get(id); return !!s && s.inside > 0 && s.outside === 0; };
   const out = [];
-  for (const [key, s] of stats) {
+  for (const [id, s] of stats) {
+    if (isIn(id) && !s.owners.some(isIn)) out.push({ key: s.key, name: s.name, at: s.at, items: s.items });
+  }
+  return out;
+}
+
+// What a drag sends as `contains`: the groups' components, one per name and
+// source (three selected rows list Row once), at most max.
+export function distinctComponents(groups, max) {
+  const seen = new Set();
+  const out = [];
+  for (const g of groups) {
     if (out.length >= max) break;
-    // A recursive component used at the same place is not its own outer component.
-    if (isIn(key) && !s.owners.some((k) => k !== key && isIn(k))) out.push({ name: s.name, at: s.at, items: s.items });
+    if (!seen.has(g.key)) { seen.add(g.key); out.push({ name: g.name, at: g.at }); }
   }
   return out;
 }
 
 // `elements`: the containing element's descendants in document order, each
-// { fiber, box } (fiber: the element's own, or null). Elements with no fiber or
-// no box (not rendered) are ignored. Returns componentGroups' groups, items
-// indexing into `elements`.
-export function componentGroupsInside(elements, containerFiber, rect, max) {
-  const stop = new Set(ownerPath(containerFiber, new Set()).map((c) => c.key));
+// { box } plus either `fiber` (the element's own, or null) or `path` (its full
+// ownerPath, or null, e.g. cached for a drag). Elements with no fiber or no box
+// (not rendered) are ignored. Returns componentGroups' groups, items indexing
+// into `elements`. Pass the same `ids` for the paths' and the container's fibers.
+export function componentGroupsInside(elements, containerFiber, rect, ids = new WeakMap()) {
+  const stop = new Set(ownerPath(containerFiber, NO_STOP, ids).map((c) => c.key));
   const items = [];
   const index = [];
   elements.forEach((e, i) => {
-    if (!e.fiber || !(e.box.width * e.box.height > 0)) return;
-    items.push({ inside: mostlyInside(e.box, rect), path: ownerPath(e.fiber, stop) });
+    const full = e.path !== undefined ? e.path : e.fiber ? ownerPath(e.fiber, NO_STOP, ids) : null;
+    if (!full || !(e.box.width * e.box.height > 0)) return;
+    items.push({ inside: mostlyInside(e.box, rect), path: cutPath(full, stop) });
     index.push(i);
   });
-  return componentGroups(items, max).map((g) => ({ ...g, items: g.items.map((i) => index[i]) }));
+  return componentGroups(items).map((g) => ({ ...g, items: g.items.map((i) => index[i]) }));
 }
 
-// What a drag sends as `contains`: the groups' names and sources only.
 export function componentsInside(elements, containerFiber, rect, max) {
-  return componentGroupsInside(elements, containerFiber, rect, max).map(({ name, at }) => ({ name, at }));
+  return distinctComponents(componentGroupsInside(elements, containerFiber, rect), max);
 }
 
 // The smallest box around all of boxes, or null for none.
@@ -271,15 +299,20 @@ export function clipBox(box, viewport) {
   return width > 0 && height > 0 ? { x, y, width, height } : null;
 }
 
-// What the live drag view outlines: per group (componentGroups), the union of
-// the boxes of the elements folded into it, clipped to the viewport. Groups
-// with nothing on screen are left out.
-export function highlightBoxes(groups, boxes, viewport) {
+// What the live drag view outlines: per group (componentGroups, one per
+// instance), the union of the boxes of the elements folded into it, clipped to
+// the viewport, at most max. Only the first instance of each component is
+// tagged with its name. Groups with nothing on screen are left out.
+export function highlightBoxes(groups, boxes, viewport, max) {
   const out = [];
+  const tagged = new Set();
   for (const g of groups) {
+    if (out.length >= max) break;
     const u = unionBox(g.items.map((i) => boxes[i]));
     const clipped = u && clipBox(u, viewport);
-    if (clipped) out.push({ name: g.name, box: clipped });
+    if (!clipped) continue;
+    out.push({ name: g.name, box: clipped, tag: !tagged.has(g.key) });
+    tagged.add(g.key);
   }
   return out;
 }

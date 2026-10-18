@@ -11,6 +11,8 @@ const READY_MS = 30000;
 const CLICK_PAD = 8;
 // A live drag view slower than one frame skips the component outlines.
 const LIVE_BUDGET_MS = 16;
+// After this many slow frames in a row, the live view stops for that drag.
+const LIVE_SLOW_FRAMES = 3;
 // A board that predates protocol negotiation speaks protocol 1 only.
 const LEGACY_PROTOCOLS = [1];
 const STALE = 'Point & Prompt: a newer bookmarklet is available. Re-drag it from Settings → Extensions → Point & Prompt.';
@@ -139,7 +141,8 @@ function drag(e) {
     document.documentElement.appendChild(sel);
   }
   if (press.dragging) {
-    const r = dragRect(press, { x: e.clientX, y: e.clientY });
+    // Clipped as pointerup clips it, so the live view and the pick agree.
+    const r = padRect(dragRect(press, { x: e.clientX, y: e.clientY }), 0, { width: innerWidth, height: innerHeight });
     place(sel, r);
     queueLive(r);
   }
@@ -153,9 +156,21 @@ function cancel() {
   box.style.display = '';
 }
 
-// Element boxes, measured once per drag: per frame, the live view is overlap
-// maths, not thousands of layout reads. Scrolling moves everything, so it clears them.
+// Element boxes and owner paths, read once per drag: per frame, the live view
+// is overlap maths, not thousands of layout reads and fiber walks. Scrolling
+// moves every box, so it clears them; boxes are otherwise not refreshed, so a
+// page that moves mid-drag is judged as it was first measured (accepted: the
+// pick lists what was shown). Fibers don't change on scroll, so paths stay.
 let boxes = new Map();
+let paths = new Map();
+let ids = new WeakMap();
+function pathOf(el) {
+  if (!paths.has(el)) {
+    const f = ownFiber(el);
+    paths.set(el, f ? ownerPath(f, undefined, ids) : null);
+  }
+  return paths.get(el);
+}
 function boxOf(el) {
   let b = boxes.get(el);
   if (!b) {
@@ -188,35 +203,55 @@ function queueLive(r) {
   liveQueued = true;
   requestAnimationFrame(drawLive);
 }
+let slowFrames = 0;
+let liveOff = false; // too slow on this page: no live view for the rest of the drag
+function hideLive() {
+  if (frame) hide(frame);
+  for (const m of marks) { hide(m.outline); hide(m.tag); }
+}
 function drawLive() {
   liveQueued = false;
-  if (!press || !press.dragging || !liveRect) return;
-  let drawn = 0;
+  if (!press || !press.dragging || !liveRect || liveOff) return;
+  // Read and compute first, timed; write the page after, so no write forces a
+  // layout inside the timed span.
+  let around = null;
+  let shown = [];
+  let slow = false;
   try {
     const start = performance.now();
     const viewport = { width: innerWidth, height: innerHeight };
     const container = elementAround(liveRect);
-    const c = clipBox(boxOf(container), viewport);
-    if (c) {
-      frame = frame || liveMark(FRAME_CSS);
-      place(frame, c);
-      frame.style.display = '';
-    } else if (frame) hide(frame);
     const { els, groups } = scanArea(container, liveRect);
-    if (performance.now() - start <= LIVE_BUDGET_MS) {
-      for (const { name, box: b } of highlightBoxes(groups, els.map(boxOf), viewport)) {
-        const m = marks[drawn] || (marks[drawn] = { outline: liveMark(OUTLINE_CSS), tag: liveMark(TAG_CSS) });
-        place(m.outline, b);
-        Object.assign(m.tag.style, { left: b.x + 'px', top: Math.max(0, b.y - 16) + 'px', display: '' });
-        m.tag.textContent = name;
-        m.outline.style.display = '';
-        drawn += 1;
-      }
-    }
+    around = clipBox(boxOf(container), viewport);
+    shown = highlightBoxes(groups, els.map(boxOf), viewport, PICK_MAX_CONTAINS);
+    slow = performance.now() - start > LIVE_BUDGET_MS;
   } catch {
-    drawn = 0;
+    around = null;
+    shown = [];
   }
-  for (let i = drawn; i < marks.length; i += 1) { hide(marks[i].outline); hide(marks[i].tag); }
+  slowFrames = slow ? slowFrames + 1 : 0;
+  if (slowFrames >= LIVE_SLOW_FRAMES) {
+    liveOff = true;
+    hideLive();
+    return;
+  }
+  if (slow) shown = [];
+  if (around) {
+    frame = frame || liveMark(FRAME_CSS);
+    place(frame, around);
+    frame.style.display = '';
+  } else if (frame) hide(frame);
+  shown.forEach(({ name, box: b, tag }, i) => {
+    const m = marks[i] || (marks[i] = { outline: liveMark(OUTLINE_CSS), tag: liveMark(TAG_CSS) });
+    place(m.outline, b);
+    m.outline.style.display = '';
+    // One tag per component: further instances of it are outlined only.
+    if (tag) {
+      Object.assign(m.tag.style, { left: b.x + 'px', top: Math.max(0, b.y - 16) + 'px', display: '' });
+      m.tag.textContent = name;
+    } else hide(m.tag);
+  });
+  for (let i = shown.length; i < marks.length; i += 1) { hide(marks[i].outline); hide(marks[i].tag); }
 }
 function clearLive() {
   for (const m of marks) { dismiss(m.outline); dismiss(m.tag); }
@@ -225,6 +260,10 @@ function clearLive() {
   frame = null;
   liveRect = null;
   boxes = new Map();
+  paths = new Map();
+  ids = new WeakMap();
+  slowFrames = 0;
+  liveOff = false;
 }
 
 // The smallest element containing the whole area, starting under its centre.
@@ -240,17 +279,19 @@ function elementAround(rect) {
 // Runs after stopPicking, before the grab; our own overlays are skipped anyway.
 function componentsIn(container, rect) {
   try {
-    return scanArea(container, rect).groups.map(({ name, at }) => ({ name, at }));
+    return distinctComponents(scanArea(container, rect).groups, PICK_MAX_CONTAINS);
   } catch {
     return [];
   }
 }
 
-// The container's descendants (ours excluded) and the components inside rect,
-// each with the indices of the elements folded into it.
+// The container's descendants (ours excluded) and the component instances
+// inside rect, each with the indices of the elements folded into it. Only the
+// container's descendants are scanned: content a component portals elsewhere
+// is not seen (accepted).
 function scanArea(container, rect) {
   const els = descendants(container, PICK_CONTAINS_SCAN).filter((e) => !overlays.has(e));
-  const groups = componentGroupsInside(els.map((e) => ({ fiber: ownFiber(e), box: boxOf(e) })), fiberOf(container), rect, PICK_MAX_CONTAINS);
+  const groups = componentGroupsInside(els.map((e) => ({ path: pathOf(e), box: boxOf(e) })), fiberOf(container), rect, ids);
   return { els, groups };
 }
 

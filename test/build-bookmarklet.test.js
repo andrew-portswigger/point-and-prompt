@@ -742,3 +742,68 @@ test('element boxes are measured once per drag, and again after a scroll', async
   await flush();
   assert.equal(measured, 2);
 });
+
+test('each selected instance gets its own outline; a component is tagged and listed once', async () => {
+  const t = await setup({ capture: 'resolve', react: true });
+  const row = t.parent['__reactFiber$x']._debugOwner;
+  for (const x of [300, 330]) {
+    // Two Pills from one .map(): same name and source, separate instances.
+    fakeEl('I', { x, y: 100, width: 20, height: 20 }, t.parent)['__reactFiber$x'] = hostFiber(comp('Pill', '/r/ent/src/ScanRow.js', 60, row));
+  }
+  startDrag(t, 360, 125);
+  await flush();
+  assert.equal(outlines(t).length, 4);
+  assert.deepEqual(tags(t), ['ScanActions', 'ScanStatusBadge', 'Pill']);
+  t.fire('pointerup', t.ev({ clientX: 360, clientY: 125 }));
+  t.ready();
+  await flush();
+  assert.deepEqual(t.posted[0][0].contains.map((c) => c.name), ['ScanActions', 'ScanStatusBadge', 'Pill']);
+});
+
+test('after three slow frames the drag stops scanning, keeps the selection, and still lists on release', async () => {
+  let now = 0;
+  const t = await setup({ capture: 'resolve', react: true, performance: { now: () => (now += 20) } });
+  let scans = 0;
+  const orig = t.document.elementFromPoint;
+  t.document.elementFromPoint = (...a) => { scans += 1; return orig(...a); };
+  startDrag(t, 200, 125);
+  for (const x of [210, 220, 230, 240]) {
+    await flush();
+    t.fire('pointermove', t.ev({ clientX: x, clientY: 125 }));
+  }
+  await flush();
+  assert.equal(scans, 3);
+  assert.equal(highlights(t).filter(shown).length, 0, 'nothing live is shown');
+  const sel = [...t.live].find((el) => /dashed #e5484d/.test(el.style.cssText));
+  assert.equal(sel.style.width, '150px', 'the selection still follows the pointer');
+  t.fire('pointerup', t.ev({ clientX: 260, clientY: 125 }));
+  t.ready();
+  await flush();
+  assert.deepEqual(t.posted[0][0].contains.map((c) => c.name), ['ScanActions', 'ScanStatusBadge']);
+});
+
+test('owner paths are read once per drag, and kept across a scroll', async () => {
+  const t = await setup({ capture: 'resolve', react: true });
+  const fiber = t.target['__reactFiber$x'];
+  const owner = fiber._debugOwner;
+  let reads = 0;
+  Object.defineProperty(fiber, '_debugOwner', { get() { reads += 1; return owner; } });
+  startDrag(t, 200, 125);
+  await flush();
+  const first = reads;
+  assert.ok(first > 0);
+  t.fire('pointermove', t.ev({ clientX: 260, clientY: 125 }));
+  await flush();
+  t.fire('scroll', {});
+  t.fire('pointermove', t.ev({ clientX: 250, clientY: 125 }));
+  await flush();
+  assert.equal(reads, first);
+});
+
+test('the live view clips the rectangle to the viewport as the pick does', async () => {
+  const t = await setup({ capture: 'resolve', react: true });
+  startDrag(t, 1200, 125);
+  await flush();
+  // The viewport is 1000 wide: the clipped area is 90..1000, centred at 545.
+  assert.deepEqual(t.document.lastPoint, [545, 107.5]);
+});

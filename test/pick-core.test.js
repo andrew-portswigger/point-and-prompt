@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { fiberOf, debugAt, ownerChain, describeElement, capturePick, buildPayload, chooseProtocol, protocolsOf, containingElement, padRect, dragRect, shotFits, mostlyInside, descendants, ownerPath, componentGroups, componentGroupsInside, componentsInside, unionBox, clipBox, highlightBoxes, PAYLOAD_BUILDERS, PICK_CONTAINS_OVERLAP, PICK_MAX_CONTAINS, PICK_MAX_SHOT_BYTES, PICK_PROTOCOL, PICK_PROTOCOLS } from '../public/pick-core.js';
+import { fiberOf, debugAt, ownerChain, describeElement, capturePick, buildPayload, chooseProtocol, protocolsOf, containingElement, padRect, dragRect, shotFits, mostlyInside, descendants, ownerPath, cutPath, instanceId, componentGroups, distinctComponents, componentGroupsInside, componentsInside, unionBox, clipBox, highlightBoxes, PAYLOAD_BUILDERS, PICK_CONTAINS_OVERLAP, PICK_MAX_CONTAINS, PICK_MAX_SHOT_BYTES, PICK_PROTOCOL, PICK_PROTOCOLS } from '../public/pick-core.js';
 import { OPTIONAL_FIELDS } from '../public/defaults.js';
 import { shape } from './shape.js';
 
@@ -245,24 +245,40 @@ test('descendants lists elements in document order, excluding the root, up to a 
 
 // Fibers: component(name, at, owner) is a component; host(owner) a DOM element's fiber.
 const host = (owner) => ({ type: 'div', _debugOwner: owner });
+const strip = (path) => path.map(({ key, name, at }) => ({ key, name, at }));
 
 test('ownerPath lists the components above a host, nearest first, up to the stop set', () => {
   const page = component('Page', src('/a/App.js', 3), null);
   const row = component('Row', src('/a/Page.js', 9), page);
   const anon = { type: 'div', _debugOwner: row }; // not a component: skipped
   const badge = component('Badge', src('/a/Row.js', 40), anon);
-  assert.deepEqual(ownerPath(host(badge), new Set()).map((c) => c.name), ['Badge', 'Row', 'Page']);
-  assert.deepEqual(ownerPath(host(badge), new Set(['Row\u0000/a/Page.js:9'])), [{ key: 'Badge\u0000/a/Row.js:40', name: 'Badge', at: '/a/Row.js:40' }]);
-  assert.deepEqual(ownerPath(null, new Set()), []);
+  assert.deepEqual(ownerPath(host(badge)).map((c) => c.name), ['Badge', 'Row', 'Page']);
+  assert.deepEqual(strip(ownerPath(host(badge), new Set(['Row\u0000/a/Page.js:9']))), [{ key: 'Badge\u0000/a/Row.js:40', name: 'Badge', at: '/a/Row.js:40' }]);
+  assert.deepEqual(strip(cutPath(ownerPath(host(badge)), new Set(['Row\u0000/a/Page.js:9']))), [{ key: 'Badge\u0000/a/Row.js:40', name: 'Badge', at: '/a/Row.js:40' }]);
+  assert.deepEqual(ownerPath(null), []);
 });
 
-// Plain-data items: path given as [name, at] pairs, nearest first.
-const item = (inside, ...path) => ({ inside, path: path.map(([name, at]) => ({ key: `${name}\u0000${at}`, name, at })) });
-const names = (groups) => groups.map((g) => g.name);
+test('instanceId gives a fiber and its alternate one id, and other instances their own', () => {
+  const ids = new WeakMap();
+  const a = component('Row', src('/a/List.js', 5), null);
+  const b = { ...a, alternate: a };
+  a.alternate = b;
+  const other = component('Row', src('/a/List.js', 5), null);
+  assert.equal(instanceId(b, ids), instanceId(a, ids));
+  assert.notEqual(instanceId(other, ids), instanceId(a, ids));
+});
 
-test('componentGroups dedupes by name and source, keeping first-seen order', () => {
-  const out = componentGroups([item(true, ['A', 'a:1']), item(true, ['B', 'b:1']), item(true, ['A', 'a:1']), item(true, ['A', 'a:2'])], 10);
-  assert.deepEqual(out.map(({ name, at }) => ({ name, at })), [{ name: 'A', at: 'a:1' }, { name: 'B', at: 'b:1' }, { name: 'A', at: 'a:2' }]);
+// Plain-data items: path given as [name, at, instance?] nearest first; the
+// instance defaults to one per name and source.
+const item = (inside, ...path) => ({
+  inside, path: path.map(([name, at, id = `${name}@${at}`]) => ({ key: `${name}\u0000${at}`, name, at, id })),
+});
+const names = (groups) => groups.map((g) => g.name);
+const plain = (groups) => groups.map(({ name, at }) => ({ name, at }));
+
+test('componentGroups gathers each instance\'s elements, in first-seen order', () => {
+  const out = componentGroups([item(true, ['A', 'a:1']), item(true, ['B', 'b:1']), item(true, ['A', 'a:1']), item(true, ['A', 'a:2'])]);
+  assert.deepEqual(plain(out), [{ name: 'A', at: 'a:1' }, { name: 'B', at: 'b:1' }, { name: 'A', at: 'a:2' }]);
   assert.deepEqual(out[0].items, [0, 2]);
 });
 
@@ -272,39 +288,53 @@ test('componentGroups keeps the outermost and folds nested components into it', 
     item(true, ['Row', 'p:9']),
     item(true, ['Icon', 'b:3'], ['Badge', 'r:40'], ['Row', 'p:9']),
     item(true, ['Actions', 'r:88'], ['Row2', 'p:10']),
-  ], 10);
-  assert.deepEqual(out, [
-    { name: 'Row', at: 'p:9', items: [0, 1, 2] },
-    { name: 'Row2', at: 'p:10', items: [3] },
+  ]);
+  assert.deepEqual(out.map(({ name, items }) => ({ name, items })), [
+    { name: 'Row', items: [0, 1, 2] },
+    { name: 'Row2', items: [3] },
   ]);
 });
 
 test('componentGroups lists a component that renders only other components', () => {
   // Page returns <Layout><Card/></Layout>; only Card renders DOM.
-  const out = componentGroups([item(true, ['Card', 'p:5'], ['Layout', 'p:4'], ['Page', 'a:1'])], 10);
+  const out = componentGroups([item(true, ['Card', 'p:5'], ['Layout', 'p:4'], ['Page', 'a:1'])]);
   assert.deepEqual(names(out), ['Page']);
   assert.deepEqual(out[0].items, [0]);
 });
 
-test('componentGroups leaves out a component partly outside, but lists its child wholly inside', () => {
+test('componentGroups leaves out an instance partly outside, but lists its child wholly inside', () => {
   const out = componentGroups([
     item(true, ['Panel', 'p:1']),
     item(false, ['Panel', 'p:1']),
     item(true, ['Child', 'x:2'], ['Panel', 'p:1']),
-  ], 10);
-  assert.deepEqual(out, [{ name: 'Child', at: 'x:2', items: [2] }]);
+  ]);
+  assert.deepEqual(out.map(({ name, items }) => ({ name, items })), [{ name: 'Child', items: [2] }]);
 });
 
-test('componentGroups counts a recursive component once per element', () => {
-  const out = componentGroups([item(true, ['Tree', 't:3'], ['Tree', 't:3'], ['App', 'a:1'])], 10);
-  assert.deepEqual(names(out), ['App']);
-  assert.deepEqual(names(componentGroups([item(true, ['Tree', 't:3'], ['Tree', 't:3'])], 10)), ['Tree']);
+test('componentGroups judges each instance on its own: rows from one map, some inside', () => {
+  // Five Rows at List.js:12 (one per .map item), each with a Badge; rows 1-3 inside.
+  const rows = [0, 1, 2, 3, 4].flatMap((n) => {
+    const inside = n >= 1 && n <= 3;
+    return [
+      item(inside, ['Row', 'List.js:12', `row${n}`]),
+      item(inside, ['Badge', 'Row.js:40', `badge${n}`], ['Row', 'List.js:12', `row${n}`]),
+    ];
+  });
+  const out = componentGroups(rows);
+  assert.deepEqual(out.map((g) => [g.name, g.items]), [['Row', [2, 3]], ['Row', [4, 5]], ['Row', [6, 7]]]);
+  assert.deepEqual(distinctComponents(out, 10), [{ name: 'Row', at: 'List.js:12' }], 'listed once; Badge only via its Row');
 });
 
-test('componentGroups caps the list', () => {
-  const many = Array.from({ length: 15 }, (_, i) => item(true, [`C${i}`, null]));
+test('componentGroups lists a Row inside even when another Row with the same key is outside', () => {
+  const out = componentGroups([item(true, ['Row', 'L:1', 'r1']), item(false, ['Row', 'L:1', 'r2'])]);
+  assert.deepEqual(distinctComponents(out, 10), [{ name: 'Row', at: 'L:1' }]);
+});
+
+test('distinctComponents dedupes by name and source and caps the list', () => {
+  const many = Array.from({ length: 15 }, (_, i) => ({ key: `C${i}`, name: `C${i}`, at: null, items: [] }));
   assert.equal(PICK_MAX_CONTAINS, 10);
-  assert.deepEqual(names(componentGroups(many, PICK_MAX_CONTAINS)), many.slice(0, 10).map((m) => m.path[0].name));
+  assert.deepEqual(distinctComponents([...many.slice(0, 2), many[0], ...many.slice(2)], PICK_MAX_CONTAINS).map((c) => c.name),
+    many.slice(0, 10).map((m) => m.name));
 });
 
 const AREA = box(0, 0, 100, 100);
@@ -322,19 +352,50 @@ test('componentsInside reads fibers and leaves out the container\'s own owner ch
   assert.deepEqual(componentsInside(els, container, AREA, PICK_MAX_CONTAINS),
     [{ name: 'Badge', at: '/a/Row.js:40' }, { name: 'Actions', at: '/a/Row.js:88' }]);
   // The groups say which elements were folded into each component.
-  assert.deepEqual(componentGroupsInside(els, container, AREA, PICK_MAX_CONTAINS).map((g) => g.items), [[1, 2, 3], [4]]);
+  assert.deepEqual(componentGroupsInside(els, container, AREA).map((g) => g.items), [[1, 2, 3], [4]]);
+});
+
+test('componentGroupsInside takes cached full paths in place of fibers', () => {
+  const ids = new WeakMap();
+  const page = component('Page', src('/a/App.js', 3), null);
+  const row = component('Row', src('/a/Page.js', 9), page);
+  const badge = component('Badge', src('/a/Row.js', 40), row);
+  const els = [{ path: ownerPath(host(badge), undefined, ids), box: IN }, { path: null, box: IN }];
+  assert.deepEqual(plain(componentGroupsInside(els, host(row), AREA, ids)), [{ name: 'Badge', at: '/a/Row.js:40' }]);
+});
+
+test('componentsInside treats a fiber and its alternate as one instance', () => {
+  const app = component('App', src('/a/index.js', 1), null);
+  const row = component('Row', src('/a/App.js', 3), app);
+  const alt = { ...row, alternate: row };
+  row.alternate = alt;
+  // One element holds the current copy, the other the alternate; one is outside.
+  const els = [{ fiber: host(row), box: IN }, { fiber: host(alt), box: OUT }];
+  assert.deepEqual(componentsInside(els, host(app), AREA, 10), []);
+  assert.deepEqual(componentsInside([{ fiber: host(row), box: IN }, { fiber: host(alt), box: IN }], host(app), AREA, 10).map((c) => c.name), ['Row']);
+  assert.equal(componentGroupsInside([{ fiber: host(row), box: IN }, { fiber: host(alt), box: IN }], host(app), AREA).length, 1);
+});
+
+test('componentsInside lists three selected rows of five once, as Row', () => {
+  const app = component('App', src('/a/index.js', 1), null);
+  const list = component('List', src('/a/App.js', 3), app);
+  const els = [];
+  for (let n = 0; n < 5; n += 1) {
+    const row = component('Row', src('/a/List.js', 12), list);
+    const badge = component('Badge', src('/a/Row.js', 40), row);
+    const b = n >= 1 && n <= 3 ? IN : OUT;
+    els.push({ fiber: host(row), box: b }, { fiber: host(badge), box: b });
+  }
+  assert.deepEqual(componentsInside(els, host(list), AREA, 10), [{ name: 'Row', at: '/a/List.js:12' }]);
+  assert.equal(componentGroupsInside(els, host(list), AREA).length, 3, 'one group per selected row');
 });
 
 test('componentsInside lists a composition-only component wholly inside the area', () => {
   const app = component('App', src('/a/index.js', 1), null);
   const page = component('Page', src('/a/App.js', 3), app);
-  const layout = component('Layout', src('/a/Page.js', 4), page);
   const card = component('Card', src('/a/Page.js', 5), page);
   const cardHost = { type: 'div', _debugOwner: card };
-  const container = host(app);
-  assert.deepEqual(componentsInside([{ fiber: cardHost, box: IN }], container, AREA, 10).map((c) => c.name), ['Page']);
-  // Layout renders no element of its own, so it is not listed.
-  assert.equal(layout.type.name, 'Layout');
+  assert.deepEqual(componentsInside([{ fiber: cardHost, box: IN }], host(app), AREA, 10).map((c) => c.name), ['Page']);
 });
 
 test('componentsInside ignores unrendered elements and counts those outside the area', () => {
@@ -385,16 +446,19 @@ test('clipBox clips to the viewport, or is null when nothing is left', () => {
   assert.equal(clipBox(box(10, 10, 0, 10), vp), null);
 });
 
-test('highlightBoxes gives each group the union of its elements\' boxes, clipped', () => {
+test('highlightBoxes outlines each instance with the union of its elements\' boxes, clipped, tagging the first of each component', () => {
   const vp = { width: 800, height: 600 };
-  const boxes = [box(0, 0, 10, 10), box(100, 100, 20, 20), box(150, 90, 10, 10), box(790, 10, 50, 10), box(900, 900, 5, 5)];
+  const boxes = [box(0, 0, 10, 10), box(100, 100, 20, 20), box(150, 90, 10, 10), box(790, 10, 50, 10), box(900, 900, 5, 5), box(0, 300, 10, 10)];
   const groups = [
-    { name: 'A', at: null, items: [1, 2] },
-    { name: 'B', at: 'b:1', items: [3] },
-    { name: 'Gone', at: null, items: [4] },
+    { key: 'A', name: 'A', at: null, items: [1, 2] },
+    { key: 'B', name: 'B', at: 'b:1', items: [3] },
+    { key: 'G', name: 'Gone', at: null, items: [4] },
+    { key: 'A', name: 'A', at: null, items: [5] },
   ];
-  assert.deepEqual(highlightBoxes(groups, boxes, vp), [
-    { name: 'A', box: box(100, 90, 60, 30) },
-    { name: 'B', box: box(790, 10, 10, 10) },
+  assert.deepEqual(highlightBoxes(groups, boxes, vp, 10), [
+    { name: 'A', box: box(100, 90, 60, 30), tag: true },
+    { name: 'B', box: box(790, 10, 10, 10), tag: true },
+    { name: 'A', box: box(0, 300, 10, 10), tag: false },
   ]);
+  assert.equal(highlightBoxes(groups, boxes, vp, 2).length, 2);
 });
