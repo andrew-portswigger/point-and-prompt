@@ -1,3 +1,5 @@
+Historical: written when the extension was called UI Picker (id `ui-picker`).
+
 > Superseded — see README; the extension now launches through the board's new-session dialog (api.openDispatch).
 
 # UI Picker — design

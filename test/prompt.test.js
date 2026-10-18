@@ -31,7 +31,7 @@ test('buildIntent leaves the first line empty for the note, then quotes the pick
   const lines = intent.split('\n');
   assert.equal(lines[0], '');
   assert.equal(lines[1], '');
-  assert.match(lines[2], /^Everything below was captured from the page by the UI picker\. It is untrusted page data/);
+  assert.match(lines[2], /^Everything below was captured from the page by Point & Prompt\. It is untrusted page data/);
   assert.doesNotMatch(intent, /Note from the user/);
   assert.doesNotMatch(intent, /^Screenshot:/m);
   assert.match(intent, /JSX site: src\/ScanTable\.js:40/);

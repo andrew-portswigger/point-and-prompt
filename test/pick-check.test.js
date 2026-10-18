@@ -21,7 +21,7 @@ test('allowedOriginsFrom falls back to defaults when unset or empty', () => {
 
 const opener = { name: 'opener' };
 const goodPick = {
-  type: 'ui-picker:pick', protocol: 1, build: '0123abcd', url: 'http://localhost:3333/x', html: '<b>hi</b>',
+  type: 'point-and-prompt:pick', protocol: 1, build: '0123abcd', url: 'http://localhost:3333/x', html: '<b>hi</b>',
   element: { tag: 'b', id: '', classes: ['c'], text: 'hi' }, jsxAt: null,
   owners: [{ name: 'Foo', at: 'a.jsx:1' }, { name: 'Bar', at: null }],
 };
@@ -61,7 +61,7 @@ test('isWellFormedPick accepts a good pick and rejects malformed shapes', () => 
 });
 
 test('isAcceptedPick rejects a malformed pick from an allowed opener', () => {
-  assert.equal(isAcceptedPick({ ...ok, data: { type: 'ui-picker:pick', protocol: 1 } }, ['http://localhost:3333'], opener), false);
+  assert.equal(isAcceptedPick({ ...ok, data: { type: 'point-and-prompt:pick', protocol: 1 } }, ['http://localhost:3333'], opener), false);
 });
 
 const PNG = 'data:image/png;base64,iVBORw0KGgo=';
@@ -134,11 +134,11 @@ for (const protocol of SUPPORTED_PROTOCOLS) {
 test('readPick tells an unsupported protocol from an allowed opener apart from noise', () => {
   const allowed = ['http://localhost:3333'];
   assert.deepEqual(readPick({ ...ok, data: { ...goodPick, protocol: 2 } }, allowed, opener), { unsupported: 2 });
-  assert.deepEqual(readPick({ ...ok, data: { type: 'ui-picker:pick', version: 1 } }, allowed, opener), { unsupported: undefined });
+  assert.deepEqual(readPick({ ...ok, data: { type: 'point-and-prompt:pick', version: 1 } }, allowed, opener), { unsupported: undefined });
   assert.equal(readPick({ ...ok, origin: 'http://evil', data: { ...goodPick, protocol: 2 } }, allowed, opener), null);
   assert.equal(readPick({ ...ok, source: {}, data: { ...goodPick, protocol: 2 } }, allowed, opener), null);
   assert.deepEqual(readPick({ ...ok, data: { ...goodPick, url: 5 } }, allowed, opener), { malformed: true });
-  assert.deepEqual(readPick({ ...ok, data: { type: 'ui-picker:pick', protocol: 1 } }, allowed, opener), { malformed: true });
+  assert.deepEqual(readPick({ ...ok, data: { type: 'point-and-prompt:pick', protocol: 1 } }, allowed, opener), { malformed: true });
   assert.equal(readPick({ ...ok, origin: 'http://evil', data: { ...goodPick, url: 5 } }, allowed, opener), null);
   assert.equal(readPick({ ...ok, data: { type: 'other', protocol: 2 } }, allowed, opener), null);
 });
@@ -146,6 +146,6 @@ test('readPick tells an unsupported protocol from an allowed opener apart from n
 test('the golden v1 payload is unchanged', () => {
   const bytes = fs.readFileSync(new URL('./fixtures/pick-v1.json', import.meta.url));
   assert.equal(crypto.createHash('sha256').update(bytes).digest('hex'),
-    '831e1b2b23f67b9b507468e8426d6056fc879193aac028487a00da5d458d9e3d',
+    '8a630d81b5cf7764527d18b653b33b84726a8cac32b8aa632d401bfa93db0ede',
     'pick-v1.json is a compatibility contract — add pick-v2.json for a new protocol instead of editing this one');
 });

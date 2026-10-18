@@ -1,5 +1,5 @@
 {
-  "type": "ui-picker:pick",
+  "type": "point-and-prompt:pick",
   "protocol": 1,
   "build": "54621b85",
   "url": "http://localhost:3333/scans",

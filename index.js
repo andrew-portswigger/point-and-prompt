@@ -1,7 +1,7 @@
 export default {
-  id: 'ui-picker',
-  label: 'UI Picker',
-  description: 'Pick a component in the DAST web app and start a session about it.',
+  id: 'point-and-prompt',
+  label: 'Point & Prompt',
+  description: 'Point at part of a React app\'s UI and start a session about it, with the component\'s source location and a screenshot attached. Defaults target DAST.',
   help: 'Setup steps, the bookmarklet and the settings are in this section. Save applies the settings.',
   author: 'Andrew Whitehead',
   defaultEnabled: true,

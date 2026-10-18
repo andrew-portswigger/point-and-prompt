@@ -20,7 +20,7 @@ export function buildId(coreSrc, mainSrc) {
 export function buildBookmarklet(coreSrc, mainSrc, origin) {
   const core = coreSrc.replace(/^export /gm, '');
   const main = mainSrc
-    .replace('__UI_PICKER_BUILD__', () => JSON.stringify(buildId(coreSrc, mainSrc)))
+    .replace('__POINT_AND_PROMPT_BUILD__', () => JSON.stringify(buildId(coreSrc, mainSrc)))
     .replace('__WRANGLER_ORIGIN__', () => JSON.stringify(origin));
   return 'javascript:' + encodeURIComponent(`(() => {\n${core}\n${main}\n})();`);
 }

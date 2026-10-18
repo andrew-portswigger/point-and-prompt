@@ -75,7 +75,7 @@ export function capturePick(el, { url, rect, dpr, build }) {
 export const PAYLOAD_BUILDERS = {
   1(raw) {
     const p = {
-      type: 'ui-picker:pick',
+      type: 'point-and-prompt:pick',
       protocol: 1,
       build: raw.build,
       url: raw.url,

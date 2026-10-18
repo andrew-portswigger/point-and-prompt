@@ -61,7 +61,7 @@ test('buildPayload assembles a pick from the captured facts, tagged with its pro
     url: 'http://h/', rect: { x: 1, y: 2, width: 3, height: 4 }, dpr: 2, build: 'b',
   });
   const p = buildPayload(raw, 1);
-  assert.equal(p.type, 'ui-picker:pick');
+  assert.equal(p.type, 'point-and-prompt:pick');
   assert.equal(p.protocol, PICK_PROTOCOL);
   assert.equal('version' in p, false);
   assert.equal(p.jsxAt, '/a/Table.js:20');

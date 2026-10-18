@@ -32,11 +32,14 @@ const flush = () => new Promise((r) => setImmediate(r));
 
 test('renders the setup steps, how-to and both settings', () => {
   const { el, repo, origins, contribution } = setup();
-  assert.equal(contribution.id, 'ui-picker');
+  assert.equal(contribution.id, 'point-and-prompt');
   const steps = el.byTag('ol')[0].byTag('li').map((li) => li.textContent);
   assert.equal(steps.length, 2);
   assert.match(steps[0], /Drag the button below to your bookmarks bar/);
-  assert.match(steps[1], /On DAST, allow pop-ups/);
+  assert.match(steps[1], /On your app \(DAST by default\), allow pop-ups/);
+  assert.match(el.textContent, /Point at part of a React app's UI/);
+  assert.match(el.textContent, /The defaults target DAST \(~\/vcs\/enterprise, pages on http:\/\/localhost:3333 and http:\/\/localhost:1234\)/);
+  assert.match(el.textContent, /React 17 or 18 development build/);
   assert.doesNotMatch(el.textContent, /webpack|babel|enterprise app/i);
   assert.match(el.textContent, /How to use/);
   assert.match(el.textContent, /Share the tab/);
@@ -50,14 +53,14 @@ test('the link is the bookmarklet built from the extension sources with this ori
   const { link, fetched } = setup();
   await flush();
   assert.deepEqual(fetched.sort(), [MAIN_URL, PICK_CORE_URL].sort());
-  assert.equal(link.textContent, 'UI Picker');
+  assert.equal(link.textContent, 'Point & Prompt');
   assert.ok(link.href.startsWith('javascript:'));
   assert.match(decodeURIComponent(link.href), /"http:\/\/localhost:7777"/);
 });
 
 test('fetches the sources from the extension path', () => {
-  assert.equal(PICK_CORE_URL, '/ext/ui-picker/pick-core.js');
-  assert.equal(MAIN_URL, '/ext/ui-picker/bookmarklet-main.js');
+  assert.equal(PICK_CORE_URL, '/ext/point-and-prompt/pick-core.js');
+  assert.equal(MAIN_URL, '/ext/point-and-prompt/bookmarklet-main.js');
 });
 
 test('clicking the link does nothing and says to drag it', async () => {

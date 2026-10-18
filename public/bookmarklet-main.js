@@ -1,9 +1,9 @@
 const WRANGLER = __WRANGLER_ORIGIN__;
 // A hash of this code, stamped by build-bookmarklet.js; the board compares it
 // with the code it serves now and suggests re-dragging when they differ.
-const BUILD = __UI_PICKER_BUILD__;
-if (window.__uiPickerActive) return;
-window.__uiPickerActive = true;
+const BUILD = __POINT_AND_PROMPT_BUILD__;
+if (window.__pointAndPromptActive) return;
+window.__pointAndPromptActive = true;
 
 const DRAG_PX = 4;
 // The board boots (socket, graph, extension modules) before it can say ready.
@@ -11,8 +11,8 @@ const READY_MS = 30000;
 const CLICK_PAD = 8;
 // A board that predates protocol negotiation speaks protocol 1 only.
 const LEGACY_PROTOCOLS = [1];
-const STALE = 'UI Picker: a newer bookmarklet is available. Re-drag it from Settings → Extensions → UI Picker.';
-const MISMATCH = "UI Picker: this bookmarklet doesn't match the UI Picker on your wrangler. Re-drag it from Settings → Extensions → UI Picker.";
+const STALE = 'Point & Prompt: a newer bookmarklet is available. Re-drag it from Settings → Extensions → Point & Prompt.';
+const MISMATCH = "Point & Prompt: this bookmarklet doesn't match the Point & Prompt extension on your wrangler. Re-drag it from Settings → Extensions → Point & Prompt.";
 
 // Ask to share this tab right away, synchronously: running the bookmarklet is
 // the user activation getDisplayMedia needs. Transient activation is time-based
@@ -44,7 +44,7 @@ function sharingEnded() {
   stopSharing();
   if (ended) return;
   dismissBanners();
-  banner('UI Picker: sharing stopped — click an element (Esc to cancel)');
+  banner('Point & Prompt: sharing stopped — click an element (Esc to cancel)');
 }
 
 // Everything we draw on the page, so it can all go before a frame is grabbed.
@@ -94,7 +94,7 @@ function stopPicking() {
 
 function release() {
   for (const t of SWALLOWED) removeEventListener(t, swallow, true);
-  window.__uiPickerActive = false;
+  window.__pointAndPromptActive = false;
 }
 
 const place = (el, r) => Object.assign(el.style, { left: r.x + 'px', top: r.y + 'px', width: r.width + 'px', height: r.height + 'px' });
@@ -170,7 +170,7 @@ async function grab(rect) {
     if (!shotFits(png)) throw new Error('screenshot too large');
     return png;
   } catch {
-    banner('UI Picker: screenshot failed — paste one instead');
+    banner('Point & Prompt: screenshot failed — paste one instead');
     return null;
   } finally {
     stopSharing();
@@ -196,9 +196,9 @@ function up(e) {
   const raw = capturePick(el, { url: location.href, rect, dpr: devicePixelRatio, build: BUILD });
   // Open the popup before any await, while the press still counts as activation.
   // A fresh window name per pick: a reused name would keep the first tab as opener.
-  const name = 'ui-picker-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
-  const popup = window.open(WRANGLER + '/?ui-picker=1', name, 'width=560,height=760');
-  if (!popup) { stopSharing(); banner('UI Picker: allow pop-ups for this site and try again.'); return; }
+  const name = 'point-and-prompt-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+  const popup = window.open(WRANGLER + '/?point-and-prompt=1', name, 'width=560,height=760');
+  if (!popup) { stopSharing(); banner('Point & Prompt: allow pop-ups for this site and try again.'); return; }
 
   // Post once the popup is ready and the screenshot (if any) is settled.
   // Nothing to capture in an empty area (a straight-line drag, an off-screen target).
@@ -224,7 +224,7 @@ function up(e) {
     });
   }
   const onReady = (m) => {
-    if (m.source !== popup || !m.data || m.data.type !== 'ui-picker:ready') return;
+    if (m.source !== popup || !m.data || m.data.type !== 'point-and-prompt:ready') return;
     ready = true;
     removeEventListener('message', onReady);
     const theirs = Array.isArray(m.data.protocols) ? m.data.protocols : LEGACY_PROTOCOLS;
@@ -246,7 +246,7 @@ function up(e) {
     stopSharing();
     if (!ready) {
       removeEventListener('message', onReady);
-      banner("UI Picker: the wrangler board didn't respond within 30s. Is the UI Picker extension enabled there (needs host API 1.36.0+)?", 8000);
+      banner("Point & Prompt: the wrangler board didn't respond within 30s. Is the Point & Prompt extension enabled there (needs host API 1.36.0+)?", 8000);
       return;
     }
     // Ready, but the grab never finished: send the pick without it.
@@ -268,7 +268,7 @@ function arm(text) {
 
 // Picking waits for the share prompt; Esc works throughout.
 addEventListener('keydown', key, true);
-const asking = banner('UI Picker: share this tab to attach a screenshot (or Cancel to pick without one)', 0);
+const asking = banner('Point & Prompt: share this tab to attach a screenshot (or Cancel to pick without one)', 0);
 shared.then((s) => {
   if (ended) { stopTracks(s); return; }
   dismiss(asking);
@@ -276,14 +276,14 @@ shared.then((s) => {
   // The prompt also offers other tabs, windows and screens; only this tab will do.
   if (!track || track.getSettings().displaySurface !== 'browser') {
     stopTracks(s);
-    arm('UI Picker: only this tab can be captured — click an element (Esc to cancel)');
+    arm('Point & Prompt: only this tab can be captured — click an element (Esc to cancel)');
     return;
   }
   stream = s;
   track.addEventListener('ended', sharingEnded);
-  arm('UI Picker: click an element, or drag to capture an area (Esc to cancel)');
+  arm('Point & Prompt: click an element, or drag to capture an area (Esc to cancel)');
 }, () => {
   if (ended) return;
   dismiss(asking);
-  arm('UI Picker: click an element (Esc to cancel)');
+  arm('Point & Prompt: click an element (Esc to cancel)');
 });

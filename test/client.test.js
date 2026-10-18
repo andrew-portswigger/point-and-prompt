@@ -16,12 +16,12 @@ const PNG = 'data:image/png;base64,' + Buffer.from(PNG_BYTES).toString('base64')
 const flush = () => new Promise((r) => setImmediate(r));
 
 const pick = {
-  type: 'ui-picker:pick', protocol: 1, build: CURRENT_BUILD, url: 'http://localhost:3333/scans', html: '<b>hi</b>',
+  type: 'point-and-prompt:pick', protocol: 1, build: CURRENT_BUILD, url: 'http://localhost:3333/scans', html: '<b>hi</b>',
   element: { tag: 'b', id: '', classes: ['c'], text: 'hi' }, jsxAt: '/Users/me/vcs/enterprise/src/A.js:4',
   owners: [{ name: 'Foo', at: null }],
 };
 
-function setup({ search = '?ui-picker=1', opener = { posted: [] }, framed = false, settings = {}, stage, openDispatch, notify, fetchText = serveSources, buildWaitMs } = {}) {
+function setup({ search = '?point-and-prompt=1', opener = { posted: [] }, framed = false, settings = {}, stage, openDispatch, notify, fetchText = serveSources, buildWaitMs } = {}) {
   if (opener) opener.postMessage = (msg, target) => opener.posted.push([msg, target]);
   const listeners = new Set();
   const win = {
@@ -47,7 +47,7 @@ function setup({ search = '?ui-picker=1', opener = { posted: [] }, framed = fals
   return { started, win, opener, calls, send, listeners, launches, api };
 }
 
-test('does nothing without ?ui-picker', () => {
+test('does nothing without ?point-and-prompt', () => {
   const t = setup({ search: '' });
   assert.equal(t.started, false);
   assert.deepEqual(t.opener.posted, []);
@@ -66,7 +66,7 @@ test('does nothing inside a frame', () => {
   assert.deepEqual(t.opener.posted, []);
 });
 
-const READY = { type: 'ui-picker:ready', protocols: [1], build: CURRENT_BUILD };
+const READY = { type: 'point-and-prompt:ready', protocols: [1], build: CURRENT_BUILD };
 
 test('posts ready with the protocols and current build to the opener once per allowed origin, never to *', async () => {
   const t = setup();
@@ -88,8 +88,8 @@ test('ready omits build when the sources cannot be fetched', async () => {
   const t = setup({ fetchText: () => Promise.reject(new Error('offline')) });
   await flush();
   assert.deepEqual(t.opener.posted.map(([m]) => m), [
-    { type: 'ui-picker:ready', protocols: [1] },
-    { type: 'ui-picker:ready', protocols: [1] },
+    { type: 'point-and-prompt:ready', protocols: [1] },
+    { type: 'point-and-prompt:ready', protocols: [1] },
   ]);
 });
 
@@ -98,7 +98,7 @@ test('a slow fetch does not hold up ready for long: it goes without build', asyn
   await flush();
   assert.equal(t.opener.posted.length, 0);
   await new Promise((r) => setTimeout(r, 20));
-  assert.deepEqual(t.opener.posted.map(([m]) => m)[0], { type: 'ui-picker:ready', protocols: [1] });
+  assert.deepEqual(t.opener.posted.map(([m]) => m)[0], { type: 'point-and-prompt:ready', protocols: [1] });
 });
 
 test('the board shows no stale-build notice itself: the bookmarklet does', async () => {
@@ -137,7 +137,7 @@ test('ignores picks from another source or a disallowed origin, and foreign mess
   assert.equal(t.listeners.size, 1);
 });
 
-const MISMATCH = "This UI Picker bookmarklet doesn't match this wrangler. Re-drag it from Settings → Extensions → UI Picker.";
+const MISMATCH = "This Point & Prompt bookmarklet doesn't match this wrangler. Re-drag it from Settings → Extensions → Point & Prompt.";
 
 test('an unsupported protocol from the opener says so, opens no dialog, and closes once the card is dismissed', async () => {
   let dismiss;
@@ -164,7 +164,7 @@ test('a pick without a protocol is a mismatch too', async () => {
   assert.equal(t.win.closed, 1);
 });
 
-const MALFORMED = "UI Picker couldn't read that pick. Re-drag the bookmarklet from Settings → Extensions → UI Picker.";
+const MALFORMED = "Point & Prompt couldn't read that pick. Re-drag the bookmarklet from Settings → Extensions → Point & Prompt.";
 
 test('a malformed pick from the opener says so, opens no dialog, and closes once the card is dismissed', async () => {
   let dismiss;
@@ -306,7 +306,7 @@ test('register runs the picker on the real window and location with registrar.ap
   const win = { opener: { postMessage: (m) => posted.push(m) }, addEventListener: (t, f) => { onMsg = f; }, removeEventListener() {}, close() {} };
   win.top = win;
   globalThis.window = win;
-  globalThis.location = { search: '?ui-picker=1' };
+  globalThis.location = { search: '?point-and-prompt=1' };
   const registered = [];
   try {
     client.register({ api, register: (slot, c) => registered.push([slot, c]) });
@@ -316,8 +316,8 @@ test('register runs the picker on the real window and location with registrar.ap
   }
   // No server here, so the sources can't be fetched: ready goes without build.
   for (let i = 0; i < 50 && !posted.length; i += 1) await flush();
-  assert.deepEqual(posted, [{ type: 'ui-picker:ready', protocols: [1] }]);
-  assert.deepEqual(registered.map(([slot, c]) => [slot, c.id]), [['settings.panel', 'ui-picker']]);
+  assert.deepEqual(posted, [{ type: 'point-and-prompt:ready', protocols: [1] }]);
+  assert.deepEqual(registered.map(([slot, c]) => [slot, c.id]), [['settings.panel', 'point-and-prompt']]);
   assert.equal(typeof registered[0][1].mount, 'function');
   assert.equal(typeof registered[0][1].save, 'function');
   // The api used is registrar.api itself: its openDispatch receives the launch.

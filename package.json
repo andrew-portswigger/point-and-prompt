@@ -1,13 +1,13 @@
 {
-  "name": "agent-wrangler-ui-picker",
+  "name": "agent-wrangler-point-and-prompt",
   "version": "0.1.0",
   "private": true,
   "type": "module",
   "scripts": { "test": "node --test" },
   "wranglerExtension": {
-    "id": "ui-picker",
-    "label": "UI Picker",
-    "description": "Pick a component in the DAST web app and start a session about it.",
+    "id": "point-and-prompt",
+    "label": "Point & Prompt",
+    "description": "Point at part of a React app's UI and start a session about it, with the component's source location and a screenshot attached. Defaults target DAST.",
     "author": "Andrew Whitehead",
     "requires": []
   }

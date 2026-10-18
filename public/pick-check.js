@@ -53,7 +53,7 @@ export const normalisePick = {
 export function readPick(event, allowed, expectedSource) {
   const d = event.data;
   if (!expectedSource || event.source !== expectedSource || !allowed.includes(event.origin)) return null;
-  if (!d || d.type !== 'ui-picker:pick') return null;
+  if (!d || d.type !== 'point-and-prompt:pick') return null;
   if (!SUPPORTED_PROTOCOLS.includes(d.protocol)) return { unsupported: d.protocol };
   const pick = normalisePick[d.protocol](d);
   return pick ? { pick } : { malformed: true };

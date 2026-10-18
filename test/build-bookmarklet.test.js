@@ -43,7 +43,7 @@ test('the bookmarklet carries the build id of its sources, whatever the origin',
   const id = buildId(core, main);
   for (const origin of ['http://localhost:7777', 'https://wrangler.example:8443']) {
     const src = decodeURIComponent(buildBookmarklet(core, main, origin).slice('javascript:'.length));
-    assert.doesNotMatch(src, /__UI_PICKER_BUILD__/);
+    assert.doesNotMatch(src, /__POINT_AND_PROMPT_BUILD__/);
     assert.ok(src.includes(JSON.stringify(id)), origin);
   }
   const changed = buildBookmarklet(core, main + '\n// edited', 'http://localhost:7777');
@@ -101,7 +101,7 @@ async function setup({ capture = 'reject', png = PNG, grab = 'ok', surface = 'br
       return Promise.resolve({ ...frame, close() {} });
     }
   }
-  const win = { __uiPickerActive: false, popup: {}, open(...a) { opened.push(a); return win.popup; } };
+  const win = { __pointAndPromptActive: false, popup: {}, open(...a) { opened.push(a); return win.popup; } };
   win.popup = { postMessage: (...a) => posted.push(a) };
   const mk = (tag) => {
     if (tag === 'canvas') {
@@ -145,7 +145,7 @@ async function setup({ capture = 'reject', png = PNG, grab = 'ok', surface = 'br
   win.popup.closed = 0;
   win.popup.close = () => { win.popup.closed += 1; };
   // protocols: the list the board advertises, or undefined for a ready without the field.
-  const ready = (protocols = [1], build) => fire('message', { source: win.popup, data: { type: 'ui-picker:ready', ...(protocols ? { protocols } : {}), ...(build ? { build } : {}) } });
+  const ready = (protocols = [1], build) => fire('message', { source: win.popup, data: { type: 'point-and-prompt:ready', ...(protocols ? { protocols } : {}), ...(build ? { build } : {}) } });
   return {
     win, listeners, timers, opened, posted, banners, live, drawn, track, gdmCalls, document, target, parent, body,
     fire, ev, click, ready, settle: async () => { settle(); await flush(); }, setUnderPoint: (el) => { underPoint = el; },
@@ -167,7 +167,7 @@ test('asks to share the current tab as soon as it runs, before picking is armed'
 
 test('a cancelled share arms plain picking', async () => {
   const t = await setup();
-  assert.equal(t.banners.at(-1), 'UI Picker: click an element (Esc to cancel)');
+  assert.equal(t.banners.at(-1), 'Point & Prompt: click an element (Esc to cancel)');
 });
 
 test('a missing getDisplayMedia arms plain picking', async () => {
@@ -178,7 +178,7 @@ test('a missing getDisplayMedia arms plain picking', async () => {
   new Function('window', 'document', 'addEventListener', 'removeEventListener', 'setTimeout', 'navigator', src)(
     {}, document, (t, f) => listeners.push([t, f]), () => {}, () => {}, {});
   await flush();
-  assert.equal(banners.at(-1), 'UI Picker: click an element (Esc to cancel)');
+  assert.equal(banners.at(-1), 'Point & Prompt: click an element (Esc to cancel)');
   assert.ok(listeners.some(([t]) => t === 'pointerdown'));
 });
 
@@ -189,8 +189,8 @@ test('pointerup opens the board in a uniquely named popup at the exact picker UR
   a.fire('pointerup', a.ev());
   const b = await setup();
   b.click();
-  assert.equal(a.opened[0][0], `${ORIGIN}/?ui-picker=1`);
-  assert.match(a.opened[0][1], /^ui-picker-[a-z0-9]+$/);
+  assert.equal(a.opened[0][0], `${ORIGIN}/?point-and-prompt=1`);
+  assert.match(a.opened[0][1], /^point-and-prompt-[a-z0-9]+$/);
   assert.notEqual(a.opened[0][1], b.opened[0][1]);
 });
 
@@ -203,13 +203,13 @@ test('non-primary buttons do not pick', async () => {
 test('ready from another source is ignored; ready from the popup posts to the origin', async () => {
   const t = await setup();
   t.click();
-  t.fire('message', { source: {}, data: { type: 'ui-picker:ready' } });
+  t.fire('message', { source: {}, data: { type: 'point-and-prompt:ready' } });
   assert.equal(t.posted.length, 0);
   t.ready();
   assert.equal(t.posted.length, 1);
   assert.equal(t.posted[0][1], ORIGIN);
   assert.equal(t.posted[0][0].build, buildId(read('pick-core.js'), read('bookmarklet-main.js')));
-  assert.equal(t.posted[0][0].type, 'ui-picker:pick');
+  assert.equal(t.posted[0][0].type, 'point-and-prompt:pick');
   assert.equal(t.posted[0][0].element.tag, 'button');
   assert.equal('screenshot' in t.posted[0][0], false);
 });
@@ -251,7 +251,7 @@ test('a board speaking no common protocol gets no pick: mismatch banner, sharing
   t.ready([2]);
   await flush();
   assert.equal(t.posted.length, 0);
-  assert.equal(t.banners.at(-1), "UI Picker: this bookmarklet doesn't match the UI Picker on your wrangler. Re-drag it from Settings → Extensions → UI Picker.");
+  assert.equal(t.banners.at(-1), "Point & Prompt: this bookmarklet doesn't match the Point & Prompt extension on your wrangler. Re-drag it from Settings → Extensions → Point & Prompt.");
   assert.equal(t.track.stopped > 0, true);
   assert.equal(t.track.on.ended, undefined);
   assert.equal(t.win.popup.closed, 1, 'the popup the bookmarklet opened is closed');
@@ -262,7 +262,7 @@ test('a board speaking no common protocol gets no pick: mismatch banner, sharing
   assert.equal(t.banners.some((b) => /didn't respond/.test(b)), false);
 });
 
-const STALE = 'UI Picker: a newer bookmarklet is available. Re-drag it from Settings → Extensions → UI Picker.';
+const STALE = 'Point & Prompt: a newer bookmarklet is available. Re-drag it from Settings → Extensions → Point & Prompt.';
 const OWN_BUILD = buildId(read('pick-core.js'), read('bookmarklet-main.js'));
 
 test('a board on a newer build gets the pick, then the page suggests re-dragging for 8s', async () => {
@@ -321,7 +321,7 @@ test('Esc removes every listener', async () => {
   const t = await setup();
   t.fire('keydown', t.ev({ key: 'Escape' }));
   assert.equal(t.listeners.length, 0);
-  assert.equal(t.win.__uiPickerActive, false);
+  assert.equal(t.win.__pointAndPromptActive, false);
 });
 
 test('the click after a pick is swallowed, then all listeners are released', async () => {
@@ -332,7 +332,7 @@ test('the click after a pick is swallowed, then all listeners are released', asy
   assert.equal(stopped, 1);
   t.timers.filter(([, m]) => m === 0).forEach(([f]) => f());
   assert.equal(t.listeners.filter(([type]) => type !== 'message').length, 0);
-  assert.equal(t.win.__uiPickerActive, false);
+  assert.equal(t.win.__pointAndPromptActive, false);
 });
 
 test('with capture, a click sends the padded element area as a screenshot and stops sharing', async () => {
@@ -473,7 +473,7 @@ test('without capture there is no drag: a long move still clicks the pressed ele
 test('sharing another surface is refused: tracks stop and picking is click-only', async () => {
   const t = await setup({ capture: 'resolve', surface: 'window' });
   assert.equal(t.track.stopped > 0, true);
-  assert.equal(t.banners.at(-1), 'UI Picker: only this tab can be captured — click an element (Esc to cancel)');
+  assert.equal(t.banners.at(-1), 'Point & Prompt: only this tab can be captured — click an element (Esc to cancel)');
   t.click();
   t.ready();
   assert.equal(t.posted.length, 1);
@@ -493,7 +493,7 @@ test('a frame whose shape does not match the viewport is dropped', async () => {
 test('sharing stopped from the browser bar: pick without a screenshot and no drag', async () => {
   const t = await setup({ capture: 'resolve' });
   t.track.on.ended();
-  assert.equal(t.banners.at(-1), 'UI Picker: sharing stopped — click an element (Esc to cancel)');
+  assert.equal(t.banners.at(-1), 'Point & Prompt: sharing stopped — click an element (Esc to cancel)');
   assert.equal(t.track.on.ended, undefined, 'the ended listener is removed');
   t.fire('pointerdown', t.ev());
   t.fire('pointermove', t.ev({ clientX: 300, clientY: 300 }));

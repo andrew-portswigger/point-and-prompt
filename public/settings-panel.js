@@ -1,11 +1,11 @@
-// The extension's own block in Settings → Extensions → UI Picker: setup steps,
+// The extension's own block in Settings → Extensions → Point & Prompt: setup steps,
 // the draggable bookmarklet and the two settings, saved by core's Save button.
 // Built with DOM APIs and textContent only.
 import { buildBookmarklet } from './build-bookmarklet.js';
 import { DEFAULT_ALLOWED_ORIGINS, DEFAULT_REPO_PATH } from './defaults.js';
 
-export const PICK_CORE_URL = '/ext/ui-picker/pick-core.js';
-export const MAIN_URL = '/ext/ui-picker/bookmarklet-main.js';
+export const PICK_CORE_URL = '/ext/point-and-prompt/pick-core.js';
+export const MAIN_URL = '/ext/point-and-prompt/bookmarklet-main.js';
 
 export async function defaultFetchText(url) {
   const r = await fetch(url);
@@ -60,13 +60,19 @@ export function settingsPanel({ fetchText = defaultFetchText, origin } = {}) {
       return node;
     };
 
+    const intro = make('div', 'Point at part of a React app\'s UI and start a session about it in the new-session dialog, with the component\'s source location and a screenshot attached. '
+      + `The defaults target DAST (${DEFAULT_REPO_PATH}, pages on ${DEFAULT_ALLOWED_ORIGINS.join(' and ')}). `
+      + 'File:line needs a React 17 or 18 development build; otherwise picks name the components only.', 'setting-help');
+    intro.style.marginBottom = '12px';
+    el.append(intro);
+
     el.append(make('div', 'Set up', 'setting-label'));
     const steps = make('ol');
     steps.style.margin = '4px 0 8px';
     steps.style.paddingLeft = '20px';
     for (const text of [
       'Drag the button below to your bookmarks bar.',
-      'On DAST, allow pop-ups for the site.',
+      'On your app (DAST by default), allow pop-ups for the site.',
     ]) steps.append(make('li', text, 'setting-help'));
     el.append(steps);
 
@@ -86,14 +92,14 @@ export function settingsPanel({ fetchText = defaultFetchText, origin } = {}) {
     el.append(linkRow);
     Promise.all([fetchText(PICK_CORE_URL), fetchText(MAIN_URL)]).then(([core, main]) => {
       link.href = buildBookmarklet(core, main, origin);
-      link.textContent = 'UI Picker';
+      link.textContent = 'Point & Prompt';
     }).catch(() => {
       link.style.display = 'none';
       linkNote.textContent = 'Couldn\'t build the bookmarklet — reopen Settings to retry.';
     });
 
     el.append(make('div', 'How to use', 'setting-label'));
-    const howTo = make('div', 'On DAST, click the bookmark. Share the tab for a screenshot (or Cancel for none), then click an element or drag around an area. Finish in the new-session dialog that opens on this board.', 'setting-help');
+    const howTo = make('div', 'On your app, click the bookmark. Share the tab for a screenshot (or Cancel for none), then click an element or drag around an area. Finish in the new-session dialog that opens on this board.', 'setting-help');
     howTo.style.marginBottom = '12px';
     el.append(howTo);
 
@@ -150,7 +156,7 @@ export function settingsPanel({ fetchText = defaultFetchText, origin } = {}) {
   }
 
   return {
-    id: 'ui-picker',
+    id: 'point-and-prompt',
     mount,
     update(el) { panels.get(el)?.refresh(); },
     save,

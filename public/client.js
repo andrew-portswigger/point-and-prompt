@@ -1,5 +1,5 @@
-// Runs inside the wrangler board. When the board was opened by the UI Picker
-// bookmarklet (`/?ui-picker=1` in its own popup), it takes one pick from the
+// Runs inside the wrangler board. When the board was opened by the Point & Prompt
+// bookmarklet (`/?point-and-prompt=1` in its own popup), it takes one pick from the
 // page that opened it and opens the board's own new-session dialog with the
 // pick as the prompt and the screenshot attached. Everywhere else it does nothing.
 import { DEFAULT_REPO_PATH, SUPPORTED_PROTOCOLS } from './defaults.js';
@@ -17,8 +17,8 @@ export function pngBlob(dataUrl) {
   return new Blob([bytes], { type: 'image/png' });
 }
 
-const MALFORMED = "UI Picker couldn't read that pick. Re-drag the bookmarklet from Settings → Extensions → UI Picker.";
-const MISMATCH = "This UI Picker bookmarklet doesn't match this wrangler. Re-drag it from Settings → Extensions → UI Picker.";
+const MALFORMED = "Point & Prompt couldn't read that pick. Re-drag the bookmarklet from Settings → Extensions → Point & Prompt.";
+const MISMATCH = "This Point & Prompt bookmarklet doesn't match this wrangler. Re-drag it from Settings → Extensions → Point & Prompt.";
 
 // How long ready waits for the current build id before going without it.
 const BUILD_WAIT_MS = 2000;
@@ -42,7 +42,7 @@ async function currentBuildId(fetchText, waitMs) {
 // injected for tests; onLaunch receives the promise of handling the one pick
 // (launch, or the mismatch card).
 export function startPicker({ api, win, loc, fetchText = defaultFetchText, buildWaitMs = BUILD_WAIT_MS, onLaunch = () => {} }) {
-  if (!new URLSearchParams(loc.search).has('ui-picker')) return false;
+  if (!new URLSearchParams(loc.search).has('point-and-prompt')) return false;
   const opener = win.opener;
   if (!opener || win.top !== win) return false;
   // Client modules load only after the first graph, so our settings are here already.
@@ -77,7 +77,7 @@ export function startPicker({ api, win, loc, fetchText = defaultFetchText, build
   // A pick this board can't use (a protocol it doesn't speak, or a malformed
   // payload): say so, then close like any other end, once the card is dismissed.
   async function refuse(id, body) {
-    await api.ui.notify({ id, title: 'UI Picker', body });
+    await api.ui.notify({ id, title: 'Point & Prompt', body });
     win.close();
   }
 
@@ -95,7 +95,7 @@ export function startPicker({ api, win, loc, fetchText = defaultFetchText, build
   // its own to suggest re-dragging on the page the user goes back to.
   // Addressed to each allowed origin, so any other opener gets nothing.
   currentBuildId(fetchText, buildWaitMs).then((build) => {
-    const ready = { type: 'ui-picker:ready', protocols: SUPPORTED_PROTOCOLS, ...(build ? { build } : {}) };
+    const ready = { type: 'point-and-prompt:ready', protocols: SUPPORTED_PROTOCOLS, ...(build ? { build } : {}) };
     for (const origin of allowed) opener.postMessage(ready, origin);
   });
   return true;
