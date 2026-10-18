@@ -19,3 +19,17 @@ test('every declared skill has a SKILL.md', () => {
 test('settings keys match the wrangler key pattern', () => {
   for (const s of manifest.settings) assert.match(s.key, /^[a-z][a-zA-Z0-9]*$/);
 });
+
+test('both settings are hidden: the settings panel draws them', () => {
+  const byKey = Object.fromEntries(manifest.settings.map((s) => [s.key, s]));
+  for (const key of ['repoPath', 'allowedOrigins']) {
+    assert.equal(byKey[key].hidden, true, key);
+    assert.ok(byKey[key].label, key);
+  }
+});
+
+test('help no longer points at install.html', () => {
+  assert.doesNotMatch(manifest.help, /install\.html/);
+  assert.ok(!fs.existsSync(new URL('../public/install.html', import.meta.url)));
+  assert.ok(!fs.existsSync(new URL('../public/install.js', import.meta.url)));
+});

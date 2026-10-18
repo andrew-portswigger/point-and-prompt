@@ -5,6 +5,7 @@
 import { DEFAULT_REPO_PATH } from './defaults.js';
 import { allowedOriginsFrom, isAcceptedPick } from './pick-check.js';
 import { buildIntent } from './prompt.js';
+import { settingsPanel } from './settings-panel.js';
 
 const PNG_PREFIX = 'data:image/png;base64,';
 
@@ -65,5 +66,9 @@ export function startPicker({ api, win, loc, onLaunch = () => {} }) {
 export default {
   register(registrar) {
     startPicker({ api: registrar.api, win: window, loc: location });
+    const { refreshAll, ...panel } = settingsPanel({ origin: location.origin });
+    registrar.register('settings.panel', panel);
+    // Core redraws the panel only on a remount, so follow stored values here.
+    registrar.api.settings?.onChange?.(refreshAll);
   },
 };

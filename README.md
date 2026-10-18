@@ -29,8 +29,9 @@ Requires an Agent Wrangler with host API 1.36.0 or later.
 
 1. In the wrangler, **Settings → Extensions → + Add extension**, paste this repository's git URL
    and install. It asks for no host capabilities.
-2. Open `http://localhost:<wrangler port>/ext/ui-picker/install.html` and drag **UI Picker** to your
-   bookmarks bar. The bookmarklet is tied to that wrangler's address.
+2. Open **Settings → Extensions → UI Picker** and follow the steps there: drag **UI Picker** to
+   your bookmarks bar. The bookmarklet is tied to that wrangler's address, so reinstall it if the
+   wrangler moves.
 3. The enterprise web app must be built with the dev JSX transform so components carry their
    source location: `libraries/web-app/webpack.config.js` passes
    `@babel/preset-react` `{ development: argv.mode === 'development' }`. Without it the picker
@@ -56,6 +57,10 @@ paste it into the dialog's prompt box, as for any session. If the captured scree
 uploaded, the dialog opens without it and the board says so.
 
 ## Settings
+
+Both settings live in the extension's panel under **Settings → Extensions → UI Picker**. Edit them
+there and press **Save**; an allowed origin that isn't a bare `http(s)://host[:port]` is refused
+with a message naming it, and nothing is saved.
 
 | Setting | Default | Meaning |
 | --- | --- | --- |

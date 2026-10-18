@@ -216,13 +216,17 @@ test('register runs the picker on the real window and location with registrar.ap
   win.top = win;
   globalThis.window = win;
   globalThis.location = { search: '?ui-picker=1' };
+  const registered = [];
   try {
-    client.register({ api });
+    client.register({ api, register: (slot, c) => registered.push([slot, c]) });
   } finally {
     delete globalThis.window;
     delete globalThis.location;
   }
   assert.deepEqual(posted, [{ type: 'ui-picker:ready' }]);
+  assert.deepEqual(registered.map(([slot, c]) => [slot, c.id]), [['settings.panel', 'ui-picker']]);
+  assert.equal(typeof registered[0][1].mount, 'function');
+  assert.equal(typeof registered[0][1].save, 'function');
   // The api used is registrar.api itself: its openDispatch receives the launch.
   onMsg({ data: pick, origin: 'http://a:1', source: win.opener });
   await flush();
