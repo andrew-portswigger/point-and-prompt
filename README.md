@@ -67,6 +67,19 @@ with a message naming it, and nothing is saved.
 
 Worktree, task, model and effort are chosen in the dialog, which remembers your last choices.
 
+## Versions
+
+The bookmarklet holds its own copy of the picker code, so it doesn't change when the extension
+updates; only re-dragging it from **Settings → Extensions → UI Picker** does. The two sides agree
+on a wire protocol when the board says it's ready: the board lists every protocol it accepts, and
+the bookmarklet sends the pick in the highest one both speak.
+
+- When the extension updates, bookmarklets you already have keep working as long as the board
+  still accepts their protocol. If the bookmarklet's code is older than the board's, the board
+  opens the dialog as usual and suggests re-dragging it.
+- If the two share no protocol, you're told straight away (on the page or on the board) to
+  re-drag the bookmarklet, rather than waiting for a timeout.
+
 ## Security model
 
 - The board acts only when opened as `/?ui-picker=1` by another window, and not inside a frame.
@@ -83,6 +96,10 @@ Worktree, task, model and effort are chosen in the dialog, which remembers your 
 ```bash
 npm test
 ```
+
+`test/fixtures/pick-v<N>.json` holds a real payload for each protocol the board accepts. Supporting
+a new protocol means adding it to `SUPPORTED_PROTOCOLS` in `public/defaults.js`, a normaliser in
+`public/pick-check.js` and its fixture; keep the old ones so existing bookmarklets keep working.
 
 No runtime dependencies. To try it on an isolated wrangler, copy (don't symlink — discovery skips
 symlinks) this directory to `<AW_DATA_DIR>/extensions/ui-picker/` and restart that instance.
