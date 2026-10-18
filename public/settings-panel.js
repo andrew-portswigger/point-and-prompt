@@ -13,24 +13,29 @@ async function defaultFetchText(url) {
   return r.text();
 }
 
-const isOrigin = (s) => {
+// The bare origin a line names, or null. A trailing "/" and upper-case host are
+// accepted (an address-bar paste), anything past the origin is not.
+const originOf = (s) => {
   try {
     const u = new URL(s);
-    return (u.protocol === 'http:' || u.protocol === 'https:') && u.origin === s;
+    const http = u.protocol === 'http:' || u.protocol === 'https:';
+    const bare = u.pathname === '/' && !u.search && !u.hash && !u.username && !u.password && !/[?#]/.test(s);
+    return http && bare ? u.origin : null;
   } catch {
-    return false;
+    return null;
   }
 };
 
-// Trims both values; origins are one per line, blanks and repeats dropped.
+// Trims both values; origins are one per line, stored bare, blanks and repeats dropped.
 // Throws naming the first line that isn't an http(s) origin without a path.
 export function cleanSettings({ repoPath, originsText }) {
   const allowedOrigins = [];
   for (const line of originsText.split(/\r?\n/)) {
-    const o = line.trim();
-    if (!o || allowedOrigins.includes(o)) continue;
-    if (!isOrigin(o)) throw new Error(`"${o}" isn't a page origin. Use the scheme, host and port only, like http://localhost:3333.`);
-    allowedOrigins.push(o);
+    const raw = line.trim();
+    if (!raw) continue;
+    const o = originOf(raw);
+    if (!o) throw new Error(`"${raw}" isn't a page origin. Use the scheme, host and port only, like http://localhost:3333.`);
+    if (!allowedOrigins.includes(o)) allowedOrigins.push(o);
   }
   return { repoPath: repoPath.trim(), allowedOrigins };
 }

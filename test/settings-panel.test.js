@@ -147,11 +147,17 @@ test('after a save, fields follow the stored values again', async () => {
   assert.equal(repo.value, 'server');
 });
 
+test('cleanSettings accepts an address-bar paste and stores the bare origin', () => {
+  assert.deepEqual(cleanSettings({ repoPath: '', originsText: 'http://localhost:3333/\nhttp://X.Example:8080\nhttp://localhost:3333' }), {
+    repoPath: '', allowedOrigins: ['http://localhost:3333', 'http://x.example:8080'],
+  });
+});
+
 test('cleanSettings validates origins', () => {
   assert.deepEqual(cleanSettings({ repoPath: ' a ', originsText: 'https://x.example:8443\r\nhttp://y' }), {
     repoPath: 'a', allowedOrigins: ['https://x.example:8443', 'http://y'],
   });
-  for (const bad of ['ftp://x', 'http://x/', 'localhost:3333', 'http://x?q', 'http://X.example', 'javascript:alert(1)']) {
+  for (const bad of ['ftp://x', 'http://x/path', 'localhost:3333', 'http://x/?q', 'http://x/#h', 'http://u@x', 'javascript:alert(1)']) {
     assert.throws(() => cleanSettings({ repoPath: '', originsText: bad }), (err) => err.message.includes(bad), bad);
   }
 });
