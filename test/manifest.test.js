@@ -8,6 +8,8 @@ const pkg = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.ur
 test('manifest agrees with package.json declaration', () => {
   assert.equal(manifest.id, pkg.wranglerExtension.id);
   assert.deepEqual(manifest.requires, pkg.wranglerExtension.requires);
+  // Install and update check package.json's copy before running any code.
+  assert.deepEqual(manifest.engines, pkg.wranglerExtension.engines);
 });
 
 test('every declared skill has a SKILL.md', () => {

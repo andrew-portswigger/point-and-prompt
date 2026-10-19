@@ -3,12 +3,17 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "scripts": { "test": "node --test" },
+  "scripts": {
+    "test": "node --test"
+  },
   "wranglerExtension": {
     "id": "point-and-prompt",
     "label": "Point & Prompt",
     "description": "Point at part of a React app's UI and start a session about it, with the component's source location and a screenshot attached. Defaults target DAST.",
     "author": "Andrew Whitehead",
-    "requires": []
+    "requires": [],
+    "engines": {
+      "wranglerApi": "^1.36.0"
+    }
   }
 }
