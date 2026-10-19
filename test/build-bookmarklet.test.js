@@ -221,7 +221,7 @@ test('a missing getDisplayMedia arms plain picking', async () => {
   assert.ok(listeners.some(([t]) => t === 'pointerdown'));
 });
 
-test('pointerup opens the board in a uniquely named popup at the exact picker URL', async () => {
+test('pointerup opens the board in a uniquely named tab at the exact picker URL', async () => {
   const a = await setup();
   a.fire('pointerdown', a.ev());
   assert.equal(a.opened.length, 0, 'not on pointerdown: a drag may follow');
@@ -231,6 +231,9 @@ test('pointerup opens the board in a uniquely named popup at the exact picker UR
   assert.equal(a.opened[0][0], `${ORIGIN}/?point-and-prompt=1`);
   assert.match(a.opened[0][1], /^point-and-prompt-[a-z0-9]+$/);
   assert.notEqual(a.opened[0][1], b.opened[0][1]);
+  // No window features: a tab beside this one, not a popup window macOS may
+  // put in another window's full-screen Space.
+  assert.equal(a.opened[0].length, 2);
 });
 
 test('non-primary buttons do not pick', async () => {

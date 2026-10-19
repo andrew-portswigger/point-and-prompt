@@ -1,5 +1,5 @@
 // Runs inside the wrangler board. When the board was opened by the Point & Prompt
-// bookmarklet (`/?point-and-prompt=1` in its own popup), it takes one pick from the
+// bookmarklet (`/?point-and-prompt=1` in its own tab), it takes one pick from the
 // page that opened it and opens the board's own new-session dialog with the
 // pick as the prompt and the screenshot attached. Everywhere else it does nothing.
 import { DEFAULT_REPO_PATH, SUPPORTED_PROTOCOLS } from './defaults.js';

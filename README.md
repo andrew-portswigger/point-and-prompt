@@ -27,14 +27,15 @@ Requires an Agent Wrangler with host API 1.36.0 or later, and Chrome. Firefox ca
    fainter dashed one shows the element that contains the area.
 3. If you shared the tab, it grabs one frame, crops it to the element (with a small margin) or to
    the dragged area, and stops sharing straight away.
-4. It opens your wrangler's board in a pop-up (`/?point-and-prompt=1`) and hands the pick and the
+4. It opens your wrangler's board in a new tab beside the page (`/?point-and-prompt=1`) and hands the pick and the
    screenshot to it with `postMessage`. The app's page never talks to the wrangler directly,
    so no CORS or origin settings change.
 5. The extension's client module, running in that board, uploads the screenshot and opens the
    board's own new-session dialog: the folder is the app's repository, the prompt holds the pick
    details below an empty first line, and the screenshot is attached as an image. Type your note
    on the first line, pick the model, effort, worktree and task as for any session, and launch.
-   The agent sees the screenshot directly. The pop-up closes once you launch or cancel.
+   The agent sees the screenshot directly. The tab closes once you launch or cancel, and Chrome
+   returns you to the page.
 
 ## Install
 
@@ -54,7 +55,8 @@ On your app (DAST by default: `http://localhost:3333` or `:1234`), click the boo
    without one. Chrome asks every time: a web page can't skip that prompt.
 2. Click an element, or drag to capture an area. `Esc` cancels.
 
-Allow pop-ups for the site the first time. The board takes a few seconds to load in the pop-up;
+Allow pop-ups for the site the first time (Chrome blocks script-opened tabs as pop-ups). The board
+takes a few seconds to load in its tab;
 if it hasn't said it's ready within 30 seconds the bookmarklet gives up with a banner. While sharing, Chrome's sharing bar appears at the top
 of the tab; it goes away as soon as the screenshot is taken (or when you press `Esc`).
 Only this tab can be captured: share another window or screen and the bookmarklet carries on without

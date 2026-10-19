@@ -369,10 +369,12 @@ function up(e) {
   // Read the page now; the payload is built once the board has chosen a protocol.
   const raw = capturePick(el, { url: location.href, rect, dpr: devicePixelRatio, build: BUILD, drag: dragging });
   if (inside) raw.contains = inside;
-  // Open the popup before any await, while the press still counts as activation.
+  // Open the board before any await, while the press still counts as activation.
   // A fresh window name per pick: a reused name would keep the first tab as opener.
+  // A tab, not a popup window: macOS can put a popup in another window's
+  // full-screen Space, while a tab opens beside this one.
   const name = 'point-and-prompt-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
-  const popup = window.open(WRANGLER + '/?point-and-prompt=1', name, 'width=560,height=760');
+  const popup = window.open(WRANGLER + '/?point-and-prompt=1', name);
   if (!popup) { stopSharing(); banner('Point & Prompt: allow pop-ups for this site and try again.'); return; }
 
   // Post once the popup is ready and the screenshot (if any) is settled.
