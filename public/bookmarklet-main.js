@@ -31,12 +31,14 @@ try {
 }
 
 let stream = null; // set while this tab is being shared
+let sentinel = null; // shown while sharing, so a stale frame can be told apart
 let ended = false;
 let press = null; // { x, y, target, dragging } between pointerdown and pointerup
 
 function stopTracks(s) { for (const t of s.getTracks()) t.stop(); }
 
 function stopSharing() {
+  if (sentinel) { dismiss(sentinel); sentinel = null; }
   if (!stream) return;
   stream.getVideoTracks()[0].removeEventListener('ended', sharingEnded);
   stopTracks(stream);
@@ -296,6 +298,27 @@ function scanArea(container, rect) {
 }
 
 const nextFrames = () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+const FRESH_FRAME_MS = 1500;
+
+// The first frame captured once our overlays are off the page: one still
+// showing the sentinel was painted before they went, so it is dropped.
+async function freshFrame(track) {
+  const capture = new ImageCapture(track);
+  const until = performance.now() + FRESH_FRAME_MS;
+  for (;;) {
+    const bitmap = await capture.grabFrame();
+    const s = sentinelSample(bitmap.width / innerWidth);
+    const c = document.createElement('canvas');
+    c.width = s.width;
+    c.height = s.height;
+    const g = c.getContext('2d');
+    g.drawImage(bitmap, s.x, s.y, s.width, s.height, 0, 0, s.width, s.height);
+    if (!showsSentinel(g.getImageData(0, 0, s.width, s.height).data)) return bitmap;
+    if (bitmap.close) bitmap.close();
+    if (performance.now() > until) throw new Error('no frame without the overlays');
+    await nextFrames();
+  }
+}
 
 // One frame of the shared tab cropped to rect (CSS px), as a PNG data URL, or
 // null. Sharing stops as soon as the frame is in hand, or on any failure.
@@ -304,7 +327,7 @@ async function grab(rect) {
     const track = stream.getVideoTracks()[0];
     removeOverlays();
     await nextFrames();
-    const bitmap = await new ImageCapture(track).grabFrame();
+    const bitmap = await freshFrame(track);
     stopSharing();
     // A frame of another shape is not this viewport (another tab, or rescaled).
     if (Math.abs(bitmap.width / bitmap.height - innerWidth / innerHeight) > 0.02) throw new Error('frame does not match the viewport');
@@ -409,6 +432,10 @@ function up(e) {
 
 function arm(text) {
   document.documentElement.appendChild(box);
+  if (stream) {
+    sentinel = overlay(PICK_SENTINEL_CSS);
+    document.documentElement.appendChild(sentinel);
+  }
   addEventListener('mousemove', move, true);
   addEventListener('pointerdown', down, true);
   addEventListener('pointermove', drag, true);

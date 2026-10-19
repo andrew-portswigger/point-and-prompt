@@ -74,7 +74,7 @@ const comp = (name, fileName, lineNumber, owner = null) => ({
 const hostFiber = (owner) => ({ type: 'div', _debugOwner: owner });
 
 // capture: 'reject' (user cancelled), 'resolve' (sharing), 'pending' (prompt still open).
-async function setup({ capture = 'reject', png = PNG, grab = 'ok', surface = 'browser', frame = { width: 2000, height: 1600 }, react = false, performance = globalThis.performance } = {}) {
+async function setup({ capture = 'reject', png = PNG, grab = 'ok', surface = 'browser', frame = { width: 2000, height: 1600 }, staleFrames = 0, react = false, performance = globalThis.performance } = {}) {
   const listeners = [];
   const timers = [];
   const opened = [];
@@ -104,19 +104,32 @@ async function setup({ capture = 'reject', png = PNG, grab = 'ok', surface = 'br
       },
     },
   };
+  // The first `staleFrames` frames grabbed were painted with the overlays still up.
+  let stale = staleFrames;
   class ImageCapture {
     constructor(t) { assert.equal(t, track); }
     grabFrame() {
       atGrab.push([...live]);
       if (grab === 'throw') return Promise.reject(new Error('InvalidStateError'));
-      return Promise.resolve({ ...frame, close() {} });
+      const showsSentinel = stale > 0;
+      stale -= 1;
+      return Promise.resolve({ ...frame, showsSentinel, close() { this.closed = true; } });
     }
   }
   const win = { __pointAndPromptActive: false, popup: {}, open(...a) { opened.push(a); return win.popup; } };
   win.popup = { postMessage: (...a) => posted.push(a) };
   const mk = (tag) => {
     if (tag === 'canvas') {
-      return { getContext: () => ({ drawImage: (...a) => drawn.push(a) }), toDataURL: (type) => (type === 'image/png' ? png : '') };
+      // `drawn` holds the crops that became screenshots; a sentinel check reads
+      // pixels instead, magenta while the frame it drew still shows the sentinel.
+      let last = null;
+      return {
+        getContext: () => ({
+          drawImage: (...a) => { last = a; },
+          getImageData: (x, y, w, h) => ({ data: new Uint8ClampedArray(w * h * 4).map((_, i) => (last[0].showsSentinel ? [255, 0, 255, 255] : [255, 255, 255, 255])[i % 4]) }),
+        }),
+        toDataURL: (type) => { drawn.push(last); return type === 'image/png' ? png : ''; },
+      };
     }
     const el = {
       style: { cssText: '' },
@@ -431,6 +444,43 @@ test('a failed grab picks without a screenshot and says so', async () => {
   t.click();
   t.ready();
   await flush();
+  assert.equal(t.posted.length, 1);
+  assert.equal('screenshot' in t.posted[0][0], false);
+  assert.match(t.banners.at(-1), /screenshot failed — paste one instead/);
+  assert.equal(t.track.stopped > 0, true);
+});
+
+const isSentinel = (el) => el.style.cssText.includes('rgb(255,0,255)');
+
+test('the sentinel shows while sharing, and only then', async () => {
+  const shared = await setup({ capture: 'resolve' });
+  assert.equal([...shared.live].filter(isSentinel).length, 1);
+  shared.track.on.ended();
+  assert.equal([...shared.live].filter(isSentinel).length, 0, 'gone once sharing stops');
+  const plain = await setup();
+  assert.equal([...plain.live].filter(isSentinel).length, 0);
+});
+
+test('a frame still showing the sentinel predates the overlays going, so it is retaken', async () => {
+  const t = await setup({ capture: 'resolve', staleFrames: 2 });
+  t.click();
+  t.ready();
+  await flush();
+  assert.equal(t.atGrab.length, 3);
+  assert.ok(t.atGrab.every((overlays) => overlays.length === 0), 'every grab is after the overlays went');
+  assert.equal(t.drawn.length, 1, 'only the clean frame is cropped');
+  assert.equal(t.drawn[0][0].showsSentinel, false);
+  assert.equal(t.posted[0][0].screenshot, PNG);
+});
+
+test('frames that keep showing the sentinel give up: no screenshot, and the failure banner', async () => {
+  let now = 0;
+  const t = await setup({ capture: 'resolve', staleFrames: Infinity, performance: { now: () => (now += 400) } });
+  t.click();
+  t.ready();
+  await flush();
+  assert.ok(t.atGrab.length > 1 && t.atGrab.length < 10, `retried a few times, then stopped (${t.atGrab.length})`);
+  assert.equal(t.drawn.length, 0);
   assert.equal(t.posted.length, 1);
   assert.equal('screenshot' in t.posted[0][0], false);
   assert.match(t.banners.at(-1), /screenshot failed — paste one instead/);

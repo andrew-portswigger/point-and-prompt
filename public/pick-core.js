@@ -155,6 +155,30 @@ export function shotFits(url) {
     && (url.length - PNG_PREFIX.length) * 0.75 <= PICK_MAX_SHOT_BYTES;
 }
 
+// A small square in the viewport's top-left corner, shown while picking with
+// a screenshot. Removing the overlays doesn't guarantee the next captured frame
+// was painted without them, so a frame still showing it is stale and retaken.
+export const PICK_SENTINEL_PX = 6;
+export const PICK_SENTINEL_CSS = `position:fixed;pointer-events:none;z-index:2147483647;left:0;top:0;width:${PICK_SENTINEL_PX}px;height:${PICK_SENTINEL_PX}px;background:rgb(255,0,255)`;
+
+// The frame pixels to read: the sentinel's middle, clear of edges blended by
+// a scaled capture, and at least one pixel however small the frame.
+export function sentinelSample(scale) {
+  const at = Math.floor(scale);
+  const size = Math.max(1, Math.floor((PICK_SENTINEL_PX - 2) * scale));
+  return { x: at, y: at, width: size, height: size };
+}
+
+// Whether most of the sampled RGBA pixels are the sentinel's magenta.
+export function showsSentinel(rgba) {
+  const n = Math.floor(rgba.length / 4);
+  let hits = 0;
+  for (let i = 0; i < n * 4; i += 4) {
+    if (rgba[i] > 220 && rgba[i + 1] < 40 && rgba[i + 2] > 220) hits += 1;
+  }
+  return n > 0 && hits * 2 > n;
+}
+
 // Whether at least PICK_CONTAINS_OVERLAP of box's area lies inside rect. An
 // unrendered (zero-area) box never does.
 export function mostlyInside(box, rect, threshold = PICK_CONTAINS_OVERLAP) {

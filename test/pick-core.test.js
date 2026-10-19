@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { fiberOf, debugAt, ownerChain, describeElement, capturePick, buildPayload, chooseProtocol, protocolsOf, containingElement, padRect, dragRect, shotFits, mostlyInside, descendants, ownerPath, cutPath, instanceId, componentGroups, distinctComponents, componentGroupsInside, componentsInside, unionBox, clipBox, highlightBoxes, PAYLOAD_BUILDERS, PICK_CONTAINS_OVERLAP, PICK_MAX_CONTAINS, PICK_MAX_SHOT_BYTES, PICK_PROTOCOL, PICK_PROTOCOLS } from '../public/pick-core.js';
+import { fiberOf, debugAt, ownerChain, describeElement, capturePick, buildPayload, chooseProtocol, protocolsOf, containingElement, padRect, dragRect, shotFits, sentinelSample, showsSentinel, PICK_SENTINEL_PX, mostlyInside, descendants, ownerPath, cutPath, instanceId, componentGroups, distinctComponents, componentGroupsInside, componentsInside, unionBox, clipBox, highlightBoxes, PAYLOAD_BUILDERS, PICK_CONTAINS_OVERLAP, PICK_MAX_CONTAINS, PICK_MAX_SHOT_BYTES, PICK_PROTOCOL, PICK_PROTOCOLS } from '../public/pick-core.js';
 import { OPTIONAL_FIELDS } from '../public/defaults.js';
 import { shape } from './shape.js';
 
@@ -125,6 +125,25 @@ test('padRect pads and clamps to the viewport', () => {
 
 test('dragRect normalises two corners in any order', () => {
   assert.deepEqual(dragRect({ x: 50, y: 10 }, { x: 20, y: 40 }), box(20, 10, 30, 30));
+});
+
+test('sentinelSample reads inside the sentinel, clear of its blended edges, at any frame scale', () => {
+  assert.deepEqual(sentinelSample(1), box(1, 1, 4, 4));
+  assert.deepEqual(sentinelSample(2), box(2, 2, 8, 8));
+  // A frame smaller than the viewport (capture downscaled) still samples a pixel.
+  assert.deepEqual(sentinelSample(0.1), box(0, 0, 1, 1));
+  const s = sentinelSample(1.5);
+  assert.ok(s.x + s.width <= PICK_SENTINEL_PX * 1.5);
+});
+
+test('showsSentinel spots the sentinel colour in RGBA pixels, and nothing else', () => {
+  const px = (...rgba) => Uint8ClampedArray.from(rgba);
+  assert.equal(showsSentinel(px(255, 0, 255, 255, 250, 6, 248, 255)), true);
+  assert.equal(showsSentinel(px(255, 255, 255, 255)), false);
+  assert.equal(showsSentinel(px(229, 72, 77, 255)), false);
+  // Mostly page, a stray matching pixel: gone.
+  assert.equal(showsSentinel(px(255, 0, 255, 255, 0, 0, 0, 255, 0, 0, 0, 255)), false);
+  assert.equal(showsSentinel(px()), false);
 });
 
 test('shotFits checks the PNG prefix and the decoded size', () => {
